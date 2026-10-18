@@ -1,0 +1,6 @@
+# 脚本与源码一律 LF，避免 Windows check-out 后 build.sh 执行报 $'\r'
+* text=auto eol=lf
+
+*.png binary
+*.ttf binary
+*.keystore binary

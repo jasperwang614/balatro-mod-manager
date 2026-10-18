@@ -1,0 +1,91 @@
+# Balatro Mods — Android 模组管理器
+
+在手机上管理 Balatro 的 Steamodded 模组。装 ZIP、启用停用、删除、看 Lovely 日志，全部在浏览器式的图形界面里完成，不用连电脑。
+
+界面沿用了游戏本体的视觉语言：真移植自 `background.fs` 的动态漩涡背景、原版的 `m6x11plus` 像素字体、贴纸式像素边框。
+
+![主界面](docs/screenshot.png)
+
+## 特性
+
+- **装模组**：从文件管理器选一个 ZIP，自动识别单层和嵌套（`xxx/xxx/`）两种打包结构，解到存档目录。同名模组会先删旧的再写，等于覆盖升级。
+- **启停**：重命名时给目录加个后缀（如 `mymod_off`）即可临时停用，游戏不会加载它。
+- **删除**：连同内部文件一起删，操作前二次确认。
+- **日志**：内置查看器读 `lovely/log/` 下最新的一份 `.log`。超过 1 小时的日志会自动清理，但**永远保留最新一份**，免得打开时一片空白。
+- **识别状态**：区分「已装载」/「需要处理」/「系统」，并标出哪些目录找不到 `main.lua` 入口、哪些是 Steamodded 本体或 Lovely。
+- **全面屏**：适配刘海与手势条，底部操作栏是悬浮的，不占列表高度。
+
+<p align="center">
+  <img src="docs/log.png" width="46%" alt="日志查看">
+</p>
+
+## 安装
+
+1. 下载 Releases 里的 `BalatroMods.apk`，装到手机。
+2. 首次打开从右上角 `⋮` 里选一次存档目录：`Documents/Balatro/game/save/Mods`（走系统 SAF 授权，只对这一处有读写权）。
+3. 授权一次后长期有效。
+
+需要手机侧已经装好 Balatro（本仓库只做管理器，不含游戏本体）。
+
+## 构建
+
+没有 Gradle。整条链是 `aapt2 → javac → d8 → 塞 dex 进 apk → zipalign → apksigner` 手写的，构建产物 53 KB。
+
+依赖：
+
+| 变量 | 说明 | 默认 |
+| --- | --- | --- |
+| `ANDROID_BUILD_TOOLS` | build-tools 目录，需含 `aapt2`、`zipalign`、`lib/d8.jar`、`lib/apksigner.jar` | `D:/Java/signer/android-14` |
+| `JAVA_HOME` | JDK 17+ | `D:/bmmwork/jdk-21.0.3+9` |
+| `ANDROID_JAR` | `android.jar`（API 34） | `D:/bmmtmp/android-34/android.jar` |
+| `PYTHON` | Python 3.8+ | `python` |
+
+```bash
+export ANDROID_BUILD_TOOLS="$HOME/Android/Sdk/build-tools/34.0.0"
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+export ANDROID_JAR="$HOME/Android/Sdk/platforms/android-34/android.jar"
+./build.sh
+```
+
+产物在 `out/BalatroMods.apk`。首次构建会生成一个测试签名 `mm.keystore`，自己发布请换成自己的。
+
+### 一个坑：d8 会 NPE
+
+`javac` 21 会给匿名类的合成参数（`this$0`）写 `MethodParameters` 属性，其中 `name_index = 0`。`d8` 8.2 读到这儿会抛 `NullPointerException: Cannot invoke "String.length()"`。
+
+`strip_mp.py` 就是干这个的：在 `javac` 之后、`d8` 之前把该属性从所有 `.class` 里剥掉。这个属性对运行没有任何作用，去掉不影响行为。
+
+## 目录结构
+
+```
+AndroidManifest.xml
+build.sh                  # 构建脚本
+strip_mp.py               # 剥离 MethodParameters
+assets/m6x11plus.ttf      # 游戏原版像素字体
+java/com/balatro/modmanager/MainActivity.java
+res/                      # 主题、图标、字符串
+tools/                    # 开发期辅助：着色器移植预览、PNG 取色
+docs/                     # README 配图
+```
+
+`MainActivity.java` 里值得一提的几处：
+
+- `Swirl` —— `background.fs` 的 Java 移植，低分辨率位图（190px 宽）+ 20 FPS + 查表三角函数，实测占用可忽略。
+- `PixelPanel` —— 阶梯方块的贴纸边框，全程关抗锯齿；小面积用色带填充，大面积退化成纯色（否则横向色带像百叶窗）。
+- `display()` —— 像素字体按 11px 网格吸附字号，因为该字体行高只报 0.82em，不补内边距会裁掉上下缘。
+
+## 已知限制
+
+- 内置 Lovely 为 0.9.0。部分模组的补丁按 0.10 语法写，日志里会出现 `Unknown key` 之类的警告，通常不影响运行。
+- 带 native 组件的模组（如 Talisman）在手机上跑不起来，需要桌面端。
+- 列表目前是一次性渲染。装到 50 个以上模组时首屏会有可感知的卡顿，且没有搜索。
+
+## 版权
+
+- 本项目与 LocalThunk、Steamodded、Lovely 的官方无关。
+- `assets/m6x11plus.ttf` 提取自 Balatro 本体，仅用于让界面与游戏视觉一致；版权归原作者所有。若权利人要求，会移除。
+- Balatro 是 LocalThunk 的商标。
+
+## 作者
+
+Jasper Wang

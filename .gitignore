@@ -1,0 +1,17 @@
+# 构建产物
+out/
+t/
+build.log
+*.idsig
+
+# 签名密钥（绝不外传）
+*.keystore
+*.jks
+
+# 调试截图与中间产物
+/*.png
+!/docs/*.png
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
