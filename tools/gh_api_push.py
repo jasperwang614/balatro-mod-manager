@@ -82,10 +82,9 @@ def main():
     if tree["sha"] != want_tree:
         raise SystemExit("树哈希对不上，中止（可能有文件模式或内容差异）")
 
-    msg = sh("git", "log", "-1", "--pretty=%B").decode()
-    # git 的 %B 会带结尾换行，还原成 cat-file 里的原始 message
-    if not msg.endswith("\n"):
-        msg += "\n"
+    # GitHub 会把提交信息末尾的换行补回来。发送前先去掉，它就只补一个，
+    # 结果与本地 git commit 生成的对象一致，SHA 不会分叉。
+    msg = sh("git", "log", "-1", "--pretty=%B").decode().rstrip("\n")
     author = sh("git", "log", "-1", "--pretty=%an\t%ae\t%aI").decode().rstrip("\n").split("\t")
     committer = sh("git", "log", "-1", "--pretty=%cn\t%ce\t%cI").decode().rstrip("\n").split("\t")
 
@@ -98,11 +97,37 @@ def main():
     })
     print("新提交 %s (本地 %s)" % (c["sha"], head))
     if c["sha"] != head:
-        print("注意：SHA 与本地不一致，但内容等价。之后本地 fetch 会分叉，可 reset 到远程。")
+        align_local(c, msg, tree["sha"])
 
     ref = call("PATCH", "/repos/%s/git/refs/heads/%s" % (REPO, BRANCH),
                {"sha": c["sha"], "force": False})
     print("已更新 %s -> %s" % (ref["ref"], ref["object"]["sha"]))
+
+
+def align_local(c, msg, tree):
+    """极端情况下 SHA 仍不同时，把本地分支对齐到远程，避免下次推送 non-fast-forward。
+
+    按「消息末尾换行数 1 或 2」两种可能重算对象哈希，命中就写进本地库并重置分支。
+    """
+    tz = (sh("git", "log", "-1", "--pretty=%aI").decode().strip()[-6:] or "+0000")
+    epoch = sh("git", "log", "-1", "--pretty=%at").decode().strip()
+    head_raw = (
+        "tree %s\nparent %s\nauthor %s <%s> %s %s\ncommitter %s <%s> %s %s\n\n"
+        % (tree, c["parents"][0]["sha"],
+           c["author"]["name"], c["author"]["email"], epoch, tz,
+           c["committer"]["name"], c["committer"]["email"], epoch, tz)
+    ).encode()
+    body = msg.encode().rstrip(b"\n")
+    for tail in (1, 2):
+        raw = head_raw + body + b"\n" * tail
+        r = subprocess.run(["git", "hash-object", "-t", "commit", "-w", "--stdin"],
+                           input=raw, capture_output=True)
+        if r.stdout.decode().strip() == c["sha"]:
+            subprocess.run(["git", "reset", "--hard", c["sha"]], check=True,
+                           stdout=subprocess.DEVNULL)
+            print("本地已对齐到 %s" % c["sha"])
+            return
+    print("本地重建失败，下次联网时 git fetch 后 reset 到 origin/%s 即可" % BRANCH)
 
 
 if __name__ == "__main__":
