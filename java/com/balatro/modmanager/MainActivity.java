@@ -26,6 +26,8 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.DocumentsContract;
 import android.text.InputType;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -43,9 +45,15 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -55,6 +63,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * Balatro 手机版 mod 管理器。
@@ -99,6 +110,7 @@ public class MainActivity extends Activity {
     private String modsDocId;
 
     private Swirl swirl;
+    private FrameLayout rootView;
     private TextView pathTv;
     private TextView statMods, statItems, statPatches;
     private TextView headState;
@@ -107,6 +119,45 @@ public class MainActivity extends Activity {
     private LinearLayout head;
     private Bar bar;
     private volatile boolean busy = false;
+
+    // ---- Thunderstore 在线目录 ----
+    private static final String TS_API = "https://thunderstore.io/c/balatro/api/v1/package/";
+    private static final String TS_CACHE = "ts_pkgs.json";
+    private static final long TS_TTL_MS = 6L * 60L * 60L * 1000L;   // 缓存 6 小时
+
+    // ---- GitHub 搜索 ----
+    private static final String GH_SEARCH = "https://api.github.com/search/repositories?q=%s&sort=stars&order=desc&per_page=50";
+
+    // ---- 翻译（MyMemory，免费无 key）----
+    private static final String TR_API = "https://api.mymemory.translated.net/get?q=%s&langpair=en|zh-CN";
+    private final Map<String, String> trCache = new HashMap<String, String>();
+
+    private final List<Pkg> pkgs = new ArrayList<Pkg>();
+    private volatile boolean pkgsLoading = false;
+    private final List<Pkg> ghRepos = new ArrayList<Pkg>();
+    private volatile boolean ghLoading = false;
+    private volatile String ghErr = null;
+    private int browseTab = 0;            // 0 = Thunderstore，1 = GitHub
+    private View browseLayer;
+    private LinearLayout browseList;
+    private EditText browseSearch;
+    private TextView browseInfo;
+    private ScrollView browseScroll;
+    private Bar browseBar;
+    private TextView tabTs, tabGh;
+    private String browseQuery = "";
+    private int browseLimit = 60;
+    private final Runnable ghDebounce = new Runnable() {
+        public void run() {
+            searchGitHub(browseQuery, new Runnable() {
+                public void run() {
+                    renderBrowseList();
+                }
+            });
+        }
+    };
+    /** 主列表最近一次的全量行，用来判断在线目录里的包是否已装。 */
+    private List<Row> lastRows = new ArrayList<Row>();
 
     // 字体：display = 游戏原版像素字体；bold/reg = 系统无衬线（某些 ROM 的默认族是宋体）
     static Typeface TF_DISPLAY, TF_BOLD, TF_REG, TF_MONO;
@@ -221,6 +272,7 @@ public class MainActivity extends Activity {
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
 
         FrameLayout root = new FrameLayout(this);
+        rootView = root;
         swirl = new Swirl(this);
         root.addView(swirl, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -364,19 +416,27 @@ public class MainActivity extends Activity {
         });
         dock.addView(dockCell(install, "安装模组", 0, 1f, 0));
 
+        TextView browseBtn = pxButton("BROWSE", 12f, C_CYAN, 0xFF0B0E10, false);
+        browseBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                showBrowse();
+            }
+        });
+        dock.addView(dockCell(browseBtn, "热门", dp(74), 0f, dp(6)));
+
         TextView refreshBtn = pxSmall("REFRESH", new View.OnClickListener() {
             public void onClick(View v) {
                 refresh();
             }
         });
-        dock.addView(dockCell(refreshBtn, "刷新", dp(70), 0f, dp(8)));
+        dock.addView(dockCell(refreshBtn, "刷新", dp(62), 0f, dp(6)));
 
         TextView logBtn = pxSmall("LOGS", new View.OnClickListener() {
             public void onClick(View v) {
                 showLog();
             }
         });
-        dock.addView(dockCell(logBtn, "日志", dp(70), 0f, dp(8)));
+        dock.addView(dockCell(logBtn, "日志", dp(62), 0f, dp(6)));
 
         root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             public WindowInsets onApplyWindowInsets(View v, WindowInsets ins) {
@@ -983,6 +1043,7 @@ public class MainActivity extends Activity {
     }
 
     private void renderRows(List<Row> rows) {
+        lastRows = rows;
         listBox.removeAllViews();
         if (rows.isEmpty()) {
             renderEmpty("目录是空的", "用「安装 ZIP」把 mod 放进来",
@@ -1730,6 +1791,672 @@ public class MainActivity extends Activity {
         s.show();
     }
 
+    // ================= 在线浏览（Thunderstore） =================
+
+    private int statusBarH() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : dp(24);
+    }
+
+    private void showBrowse() {
+        if (browseLayer != null) return;
+
+        FrameLayout layer = new FrameLayout(this);
+        layer.setBackgroundColor(0xFF07121A);
+        layer.setClickable(true);
+        layer.setFocusable(true);
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(0, statusBarH(), 0, 0);
+        layer.addView(col, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 顶栏
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(14), dp(12), dp(14), dp(10));
+
+        TextView back = pxSmall("BACK", new View.OnClickListener() {
+            public void onClick(View v) {
+                closeBrowse();
+            }
+        });
+        top.addView(back, new LinearLayout.LayoutParams(dp(62), dp(38)));
+
+        LinearLayout ttl = new LinearLayout(this);
+        ttl.setOrientation(LinearLayout.VERTICAL);
+        ttl.setPadding(dp(12), 0, 0, 0);
+        ttl.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView t1 = display("THUNDERSTORE", 17f, C_INK);
+        TextView t2 = label("热门模组", 9.5f, C_MUTED, Typeface.NORMAL);
+        t2.setPadding(0, dp(2), 0, 0);
+        ttl.addView(t1);
+        ttl.addView(t2);
+        top.addView(ttl);
+        col.addView(top);
+
+        // 搜索框
+        LinearLayout sw = new LinearLayout(this);
+        sw.setOrientation(LinearLayout.HORIZONTAL);
+        sw.setGravity(Gravity.CENTER_VERTICAL);
+        sw.setBackgroundDrawable(new PixelPanel(0xCC0E1F27, 0x66B9D6D9, dpf(10), dpf(1.5f), 0));
+        sw.setPadding(dp(6), 0, dp(6), 0);
+        LinearLayout.LayoutParams swlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        swlp.leftMargin = dp(14);
+        swlp.rightMargin = dp(14);
+        sw.setLayoutParams(swlp);
+
+        browseSearch = new EditText(this);
+        browseSearch.setSingleLine(true);
+        browseSearch.setHint("搜索模组名 / 作者");
+        browseSearch.setHintTextColor(C_DIM);
+        browseSearch.setTextColor(C_INK);
+        browseSearch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        browseSearch.setTypeface(TF_REG);
+        browseSearch.setBackgroundDrawable(null);
+        browseSearch.setPadding(dp(8), 0, dp(8), 0);
+        browseSearch.setMinHeight(0);
+        browseSearch.setMinimumHeight(0);
+        browseSearch.setInputType(InputType.TYPE_CLASS_TEXT);
+        browseSearch.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void afterTextChanged(Editable e) {
+                browseQuery = e.toString();
+                browseLimit = 60;
+                if (browseTab == 1) {
+                    ui.removeCallbacks(ghDebounce);
+                    ui.postDelayed(ghDebounce, 650);
+                } else {
+                    renderBrowseList();
+                }
+            }
+        });
+        sw.addView(browseSearch, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        col.addView(sw);
+
+        // 来源切换
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams tabsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+        tabsLp.leftMargin = dp(14);
+        tabsLp.rightMargin = dp(14);
+        tabsLp.topMargin = dp(10);
+        tabs.setLayoutParams(tabsLp);
+
+        tabTs = tabButton("THUNDERSTORE", 0);
+        tabGh = tabButton("GITHUB", 1);
+        LinearLayout.LayoutParams t1lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        LinearLayout.LayoutParams t2lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        t2lp.leftMargin = dp(8);
+        tabs.addView(tabTs, t1lp);
+        tabs.addView(tabGh, t2lp);
+        col.addView(tabs);
+
+        browseInfo = label("正在读取目录…", 9.5f, C_MUTED, Typeface.NORMAL);
+        browseInfo.setPadding(dp(16), dp(10), dp(16), dp(6));
+        col.addView(browseInfo);
+
+        browseBar = new Bar(this);
+        col.addView(browseBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(3)));
+
+        browseScroll = new ScrollView(this);
+        browseScroll.setVerticalScrollBarEnabled(false);
+        browseScroll.setClipToPadding(false);
+        browseList = new LinearLayout(this);
+        browseList.setOrientation(LinearLayout.VERTICAL);
+        browseList.setPadding(dp(14), dp(8), dp(14), dp(24));
+        browseScroll.addView(browseList, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        col.addView(browseScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        rootView.addView(layer, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        browseLayer = layer;
+        layer.setAlpha(0f);
+        layer.animate().alpha(1f).setDuration(150).start();
+
+        browseBar.setIndeterminate();
+        renderBrowseList();
+        ensurePkgs(new Runnable() {
+            public void run() {
+                renderBrowseList();
+            }
+        });
+    }
+
+    private TextView tabButton(final String label, final int idx) {
+        final TextView t = display(label, 12f, C_MUTED);
+        t.setGravity(Gravity.CENTER);
+        styleTab(t, browseTab == idx);
+        t.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (browseTab == idx) return;
+                browseTab = idx;
+                applyTabStyle();
+                browseLimit = 60;
+                renderBrowseList();
+                // 首次切到 GitHub 自动拉一次热门
+                if (idx == 1 && ghRepos.isEmpty() && !ghLoading) {
+                    searchGitHub(browseQuery, new Runnable() {
+                        public void run() {
+                            renderBrowseList();
+                        }
+                    });
+                }
+            }
+        });
+        press(t);
+        return t;
+    }
+
+    private void applyTabStyle() {
+        if (tabTs != null) styleTab(tabTs, browseTab == 0);
+        if (tabGh != null) styleTab(tabGh, browseTab == 1);
+    }
+
+    private void styleTab(TextView t, boolean on) {
+        t.setTextColor(on ? 0xFF0B0E10 : C_MUTED);
+        t.setBackgroundDrawable(new PixelPanel(on ? C_CYAN : 0x2EFFFFFF,
+                C_BORDER, dpf(8), dpf(1.5f), 0));
+    }
+
+    private void closeBrowse() {
+        if (browseLayer == null) return;
+        View v = browseLayer;
+        browseLayer = null;
+        browseQuery = "";
+        browseList = null;
+        browseSearch = null;
+        browseInfo = null;
+        browseScroll = null;
+        browseBar = null;
+        tabTs = null;
+        tabGh = null;
+        ui.removeCallbacks(ghDebounce);
+        hideKeyboard();
+        rootView.removeView(v);
+    }
+
+    private void hideKeyboard() {
+        try {
+            View f = getCurrentFocus();
+            if (f == null) return;
+            InputMethodManager im = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (im != null) im.hideSoftInputFromWindow(f.getWindowToken(), 0);
+        } catch (Throwable ignore) {
+        }
+    }
+
+    public void onBackPressed() {
+        if (browseLayer != null) {
+            closeBrowse();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    private void renderBrowseList() {
+        if (browseList == null) return;
+        if (browseTab == 1) {
+            renderGhList();
+            return;
+        }
+        browseList.removeAllViews();
+
+        if (pkgs.isEmpty()) {
+            if (pkgsLoading) {
+                browseInfo.setText("正在拉取 Thunderstore 目录…");
+                browseBar.setIndeterminate();
+            } else {
+                browseInfo.setText("没能读到目录，检查一下网络");
+                browseBar.setIdle();
+                TextView retry = pxSmall("RETRY", new View.OnClickListener() {
+                    public void onClick(View v) {
+                        try {
+                            tsCacheFile().delete();
+                        } catch (Throwable ignore) {
+                        }
+                        renderBrowseList();
+                        ensurePkgs(new Runnable() {
+                            public void run() {
+                                renderBrowseList();
+                            }
+                        });
+                    }
+                });
+                browseList.addView(retry, new LinearLayout.LayoutParams(dp(80), dp(40)));
+            }
+            return;
+        }
+        browseBar.setIdle();
+
+        String q = browseQuery == null ? "" : browseQuery.trim().toLowerCase();
+        List<Pkg> hit = new ArrayList<Pkg>();
+        for (Pkg p : pkgs) {
+            if (q.length() > 0) {
+                String hay = (p.owner + " " + p.name + " " + p.desc).toLowerCase();
+                if (!hay.contains(q)) continue;
+            }
+            hit.add(p);
+        }
+
+        if (q.length() == 0) {
+            browseInfo.setText(pkgs.size() + " 个模组 · 按下载量排序");
+        } else {
+            browseInfo.setText("找到 " + hit.size() + " 个结果");
+        }
+
+        if (hit.isEmpty()) {
+            TextView e = label("没有匹配的模组", 13f, C_MUTED, Typeface.NORMAL);
+            e.setGravity(Gravity.CENTER);
+            e.setPadding(0, dp(50), 0, 0);
+            browseList.addView(e);
+            return;
+        }
+
+        int n = Math.min(hit.size(), browseLimit);
+        for (int i = 0; i < n; i++) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(8);
+            browseList.addView(pkgRow(hit.get(i)), lp);
+        }
+
+        if (hit.size() > n) {
+            TextView more = pxSmall("MORE", new View.OnClickListener() {
+                public void onClick(View v) {
+                    browseLimit += 60;
+                    renderBrowseList();
+                }
+            });
+            LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(dp(90), dp(42));
+            mlp.topMargin = dp(6);
+            browseList.addView(more, mlp);
+        }
+    }
+
+    private void renderGhList() {
+        if (browseList == null) return;
+        browseList.removeAllViews();
+
+        if (ghLoading && ghRepos.isEmpty()) {
+            browseInfo.setText("正在搜索 GitHub…");
+            browseBar.setIndeterminate();
+            return;
+        }
+        browseBar.setIdle();
+
+        if (ghRepos.isEmpty()) {
+            browseInfo.setText(ghErr != null ? ("搜索失败：" + ghErr) : "没有匹配的仓库");
+            TextView retry = pxSmall("RETRY", new View.OnClickListener() {
+                public void onClick(View v) {
+                    searchGitHub(browseQuery, new Runnable() {
+                        public void run() {
+                            renderBrowseList();
+                        }
+                    });
+                }
+            });
+            browseList.addView(retry, new LinearLayout.LayoutParams(dp(80), dp(40)));
+            return;
+        }
+
+        browseInfo.setText(ghRepos.size() + " 个仓库 · 按星数排序");
+
+        int n = Math.min(ghRepos.size(), browseLimit);
+        for (int i = 0; i < n; i++) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(8);
+            browseList.addView(pkgRow(ghRepos.get(i)), lp);
+        }
+        if (ghRepos.size() > n) {
+            TextView more = pxSmall("MORE", new View.OnClickListener() {
+                public void onClick(View v) {
+                    browseLimit += 60;
+                    renderBrowseList();
+                }
+            });
+            LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(dp(90), dp(42));
+            mlp.topMargin = dp(6);
+            browseList.addView(more, mlp);
+        }
+    }
+
+    private View pkgRow(final Pkg p) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(10), dp(9), dp(10), dp(10));
+        card.setBackgroundDrawable(new PixelPanel(0xF0162830, C_BORDER, dpf(12), dpf(1.5f), dp(2)));
+
+        String initial = p.name.length() > 0 ? p.name.substring(0, 1).toUpperCase() : "?";
+        int accent = TILE_COLORS[Math.abs(p.fullName().hashCode()) % TILE_COLORS.length];
+        TextView tile = label(initial, 15f, 0xFF07100F, Typeface.BOLD);
+        tile.setGravity(Gravity.CENTER);
+        tile.setBackgroundDrawable(new PixelPanel(accent, C_BORDER, dpf(10), dpf(1.6f), dp(2)));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(dp(36), dp(36));
+        tlp.rightMargin = dp(10);
+        card.addView(tile, tlp);
+
+        LinearLayout mid = new LinearLayout(this);
+        mid.setOrientation(LinearLayout.VERTICAL);
+        mid.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView name = display(p.name, 15f, C_INK);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        mid.addView(name);
+
+        String metaText = p.source == 1
+                ? (p.owner + " · ★" + humanNum(p.stars) + (p.lang.length() > 0 ? " · " + p.lang : ""))
+                : (p.owner + " · " + humanNum(p.downloads) + " 下载 · " + human(p.size));
+        TextView meta = label(metaText, 9.5f, C_MUTED, Typeface.NORMAL);
+        meta.setSingleLine(true);
+        mid.addView(meta);
+
+        if (p.desc.length() > 0) {
+            TextView d = label(p.desc, 10f, 0xFF8FA6AA, Typeface.NORMAL);
+            d.setMaxLines(2);
+            d.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            d.setPadding(0, dp(2), 0, 0);
+            mid.addView(d);
+        }
+        card.addView(mid);
+
+        boolean inst = isInstalled(p);
+        TextView get = pxButton(inst ? "OK" : "GET", 11f,
+                inst ? 0x334ED07A : C_GOLD, inst ? C_GREEN : 0xFF0B0E10, false);
+        get.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                showPkgDetail(p);
+            }
+        });
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(dp(54), dp(40));
+        glp.leftMargin = dp(8);
+        card.addView(get, glp);
+
+        card.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                showPkgDetail(p);
+            }
+        });
+        return card;
+    }
+
+    private boolean isInstalled(Pkg p) {
+        String target = p.fullName();
+        for (Row r : lastRows) {
+            if (r.doc.isDir && target.equalsIgnoreCase(r.doc.name)) return true;
+        }
+        return false;
+    }
+
+    private void showPkgDetail(final Pkg p) {
+        Sheet s = new Sheet(p.name,
+                p.source == 1 ? (p.owner + " · " + p.version + " 分支") : (p.owner + " · v" + p.version));
+
+        StringBuilder b = new StringBuilder();
+        if (p.desc.length() > 0) b.append(p.desc);
+
+        if (p.source == 1) {
+            b.append("\n\n★ ").append(humanNum(p.stars))
+                    .append("  ·  ").append(p.lang.length() > 0 ? p.lang : "未知语言")
+                    .append("  ·  仓库 ").append(human(p.size));
+            b.append("\n\nGitHub 仓库不一定都能直接装：会下载默认分支的 zip，")
+                    .append("剥掉最外层目录后放进 Mods/。里面没有 .lua 的会被拒绝。");
+            if (p.size > 20L * 1024 * 1024) {
+                b.append("\n\n注意：这个仓库有 ").append(human(p.size)).append("，下载会比较久。");
+            }
+        } else {
+            b.append("\n\n下载量 ").append(humanNum(p.downloads))
+                    .append("  ·  体积 ").append(human(p.size));
+            if (p.deps.length() > 0) {
+                b.append("\n\n依赖：").append(p.deps)
+                        .append("\n（不会自动安装，缺的话游戏里会报错）");
+            }
+        }
+        b.append("\n\n会装到 Mods/").append(p.fullName()).append("/");
+        s.text(b.toString());
+
+        // 英文描述自动翻一份中文，异步加载，翻译失败就整行隐藏
+        if (p.desc.trim().length() > 0) {
+            final TextView zh = label("正在翻译…", 10.5f, 0xFFBFE6E6, Typeface.NORMAL);
+            zh.setLineSpacing(dp(3), 1f);
+            zh.setPadding(dp(10), dp(8), dp(10), dp(8));
+            zh.setBackgroundDrawable(new PixelPanel(0x3326E0E0, 0x55B9D6D9, dpf(8), dpf(1.2f), 0));
+            s.view(zh);
+            translateAsync(p.desc, zh);
+        }
+
+        s.primary("下载并安装", new Runnable() {
+            public void run() {
+                s.dismiss();
+                downloadPkg(p);
+            }
+        });
+        s.secondary("取消");
+        s.show();
+    }
+
+    private void downloadPkg(final Pkg p) {
+        if (modsDocId == null) {
+            toast("请先选择目录");
+            return;
+        }
+        if (busy) {
+            toast("还有操作在进行");
+            return;
+        }
+        busy = true;
+        final String target = p.fullName();
+        browseInfo.setText("准备下载 " + p.name + " …");
+        browseBar.setProgress(0.01f);
+
+        new Thread(new Runnable() {
+            public void run() {
+                final File tmp = new File(getCacheDir(), "dl.zip");
+                String err = null;
+                int count = 0;
+                try {
+                    downloadTo(p.url, tmp);
+                    ui.post(new Runnable() {
+                        public void run() {
+                            if (browseBar != null) browseBar.setIndeterminate();
+                            if (browseInfo != null) browseInfo.setText("正在解压 " + p.name + " …");
+                        }
+                    });
+                    count = p.source == 1 ? extractGitHub(tmp, target) : extractToMods(tmp, target);
+                } catch (Exception e) {
+                    err = shortMsg(e);
+                } finally {
+                    try {
+                        if (tmp.exists()) tmp.delete();
+                    } catch (Throwable ignore) {
+                    }
+                }
+
+                final String e2 = err;
+                final int c2 = count;
+                ui.post(new Runnable() {
+                    public void run() {
+                        busy = false;
+                        if (browseBar != null) browseBar.setIdle();
+                        if (e2 != null) {
+                            if (browseInfo != null) browseInfo.setText("安装失败：" + e2);
+                            toast("安装失败：" + e2);
+                        } else {
+                            if (browseInfo != null) {
+                                browseInfo.setText("已安装 " + p.name + " · " + c2 + " 个文件");
+                            }
+                            toast("已安装 " + p.name);
+                            // 先把新装的记进 lastRows，再重画，否则回到列表还是显示 GET
+                            Row nr = new Row();
+                            nr.doc = new Doc();
+                            nr.doc.name = target;
+                            nr.doc.isDir = true;
+                            nr.state = ST_OK;
+                            lastRows.add(nr);
+                            renderBrowseList();
+                            refresh();
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 流式下载到文件，边下边报进度，避免大包把内存撑爆。 */
+    private void downloadTo(String url, File out) throws Exception {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(60000);
+            c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("User-Agent", "BalatroMods-Android/1.0");
+            int code = c.getResponseCode();
+            if (code != 200) throw new IOException("HTTP " + code);
+            long total = c.getContentLength();
+            InputStream in = c.getInputStream();
+            FileOutputStream fo = new FileOutputStream(out);
+            try {
+                byte[] buf = new byte[32768];
+                long done = 0;
+                long last = 0;
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    fo.write(buf, 0, n);
+                    done += n;
+                    long now = SystemClock.uptimeMillis();
+                    if (total > 0 && now - last > 120) {
+                        last = now;
+                        final float f = Math.min(0.97f, done / (float) total);
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (browseBar != null) browseBar.setProgress(f);
+                                if (browseInfo != null) {
+                                    browseInfo.setText("下载中 " + (int) (f * 100) + "%");
+                                }
+                            }
+                        });
+                    }
+                }
+            } finally {
+                try {
+                    fo.close();
+                } catch (Throwable ignore) {
+                }
+                try {
+                    in.close();
+                } catch (Throwable ignore) {
+                }
+            }
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /**
+     * 解到 Mods/{owner}-{name}/。Thunderstore 的包是平铺结构
+     * （manifest.json + xxx.lua 全在根目录，没有 main.lua），
+     * 所以不能走 pickZip 那套「找 main.lua 判断」的逻辑。
+     */
+    private int extractToMods(File zip, String target) throws Exception {
+        String exist = findChildId(modsDocId, target);
+        if (exist != null) deleteDoc(exist);
+        String dirId = mkdir(modsDocId, target);
+        dirCache.clear();
+
+        int count = 0;
+        ZipInputStream zis = new ZipInputStream(new FileInputStream(zip));
+        try {
+            ZipEntry e;
+            while ((e = zis.getNextEntry()) != null) {
+                if (e.isDirectory()) continue;
+                String name = e.getName().replace('\\', '/');
+                while (name.startsWith("/")) name = name.substring(1);
+                if (name.length() == 0 || name.contains("..")) continue;
+                // Thunderstore 的元数据文件和游戏无关，不往 mod 目录里塞
+                if (name.equals("manifest.json") || name.equals("icon.png")
+                        || name.equals("README.md") || name.equals("CHANGELOG.md")) continue;
+                writeFile(dirId, name, zis);
+                count++;
+            }
+        } finally {
+            try {
+                zis.close();
+            } catch (Throwable ignore) {
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 装 GitHub 仓库。codeload 给的 zip 外面多套一层 `{repo}-{branch}/`，
+     * 要剥掉这一层才是仓库根目录。装完检查有没有 .lua，没有就当失败回滚 ——
+     * GitHub 上很多仓库是工具或源码，硬塞进 Mods 只会让游戏报错。
+     */
+    private int extractGitHub(File zip, String target) throws Exception {
+        String exist = findChildId(modsDocId, target);
+        if (exist != null) deleteDoc(exist);
+        String dirId = mkdir(modsDocId, target);
+        dirCache.clear();
+
+        int count = 0;
+        int lua = 0;
+        ZipInputStream zis = new ZipInputStream(new FileInputStream(zip));
+        try {
+            ZipEntry e;
+            while ((e = zis.getNextEntry()) != null) {
+                if (e.isDirectory()) continue;
+                String name = e.getName().replace('\\', '/');
+                int slash = name.indexOf('/');
+                if (slash < 0) continue;              // 根层不会有文件
+                name = name.substring(slash + 1);     // 去掉 repo-branch/ 前缀
+                if (name.length() == 0 || name.contains("..")) continue;
+                if (name.startsWith(".github/") || name.startsWith(".git/")) continue;
+                if (name.toLowerCase().endsWith(".lua")) lua++;
+                writeFile(dirId, name, zis);
+                count++;
+            }
+        } finally {
+            try {
+                zis.close();
+            } catch (Throwable ignore) {
+            }
+        }
+
+        if (lua == 0) {
+            try {
+                deleteDoc(dirId);
+            } catch (Throwable ignore) {
+            }
+            throw new IOException("仓库里没有 .lua，不是能直接装的 mod");
+        }
+        return count;
+    }
+
+    private static String humanNum(int v) {
+        if (v >= 1000000) return String.format("%.1fM", v / 1000000.0);
+        if (v >= 1000) return String.format("%.1fk", v / 1000.0);
+        return String.valueOf(v);
+    }
+
     private void showOverflow() {
         Sheet s = new Sheet("操作", null);
         s.row("选择目录", "重新授权存档目录", C_CYAN, new Runnable() {
@@ -1760,6 +2487,13 @@ public class MainActivity extends Activity {
                 + "看到这个标记，直接删掉，再用「安装 ZIP」重装 —— 安装器会自动剥掉多余的层。\n\n"
                 + "不需要任何权限\n"
                 + "走系统存储访问框架，只对你在选择目录时点过的那个文件夹有读写权。\n\n"
+                + "在线装 mod\n"
+                + "底部「热门」可以直接浏览在线目录，两个来源可切换："
+                + "Thunderstore 按下载量排序，GitHub 按星数排；点进详情能看到英文描述的中文翻译，"
+                + "再点「下载并安装」就装好。已装过的会标成绿色 OK。\n\n"
+                + "GitHub 上的仓库不一定都能装：管理器会下载默认分支的 zip，"
+                + "剥掉最外层目录后放进 Mods，里面没有 .lua 文件的会被拒绝。"
+                + "列表里的语言标签可以当参考，Lua 的才大概率能用。\n\n"
                 + "已知限制\n"
                 + "内置 Lovely 为 0.9.0，部分 mod 的补丁按 0.10 语法写，日志里会出现 "
                 + "Unknown key 之类的警告；带 native 组件的 mod（如 Talisman）在手机上跑不起来。\n\n"
@@ -2463,7 +3197,286 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ================= Thunderstore 在线目录 =================
+
+    /**
+     * 拉一个 URL 的全部字节。用系统内置的 HttpURLConnection，
+     * 不引 OkHttp —— 这个 App 连 Gradle 都没有，不想为了一个 GET 多塞几百 KB。
+     */
+    private byte[] httpGet(String url, int connectTimeout, int readTimeout) throws Exception {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(connectTimeout);
+            c.setReadTimeout(readTimeout);
+            c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("User-Agent", "BalatroMods-Android/1.0");
+            int code = c.getResponseCode();
+            if (code != 200) throw new IOException("HTTP " + code);
+            InputStream in = c.getInputStream();
+            ByteArrayOutputStream bo = new ByteArrayOutputStream(1 << 16);
+            try {
+                byte[] buf = new byte[16384];
+                int n;
+                while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            } finally {
+                in.close();
+            }
+            return bo.toByteArray();
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private File tsCacheFile() {
+        return new File(getCacheDir(), TS_CACHE);
+    }
+
+    /** 解析 Thunderstore 的包列表 JSON。只认每个包最新的一个版本。 */
+    private void parsePkgs(String json) throws Exception {
+        JSONArray arr = new JSONArray(json);
+        List<Pkg> out = new ArrayList<Pkg>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            if (o.optBoolean("is_deprecated", false)) continue;
+            if (o.optBoolean("has_nsfw_content", false)) continue;
+            JSONArray vs = o.optJSONArray("versions");
+            if (vs == null || vs.length() == 0) continue;
+
+            // versions 按版本号降序，第一个就是最新版
+            JSONObject v = vs.optJSONObject(0);
+            if (v == null) continue;
+            if (!v.optBoolean("is_active", true)) continue;
+
+            Pkg p = new Pkg();
+            p.owner = o.optString("owner", "");
+            p.name = o.optString("name", "");
+            p.desc = v.optString("description", "");
+            p.version = v.optString("version_number", "");
+            p.url = v.optString("download_url", "");
+            p.downloads = v.optInt("downloads", 0);
+            p.rating = o.optInt("rating_score", 0);
+            p.size = v.optLong("file_size", 0L);
+            if (p.owner.length() == 0 || p.name.length() == 0 || p.url.length() == 0) continue;
+
+            StringBuilder dep = new StringBuilder();
+            JSONArray ds = v.optJSONArray("dependencies");
+            if (ds != null) {
+                for (int k = 0; k < ds.length(); k++) {
+                    String s = ds.optString(k, "");
+                    if (s.length() == 0) continue;
+                    // Thunderstore-lovely-0.9.0 → lovely
+                    String[] seg = s.split("-");
+                    if (seg.length >= 2) {
+                        if (dep.length() > 0) dep.append(" · ");
+                        dep.append(seg[1]);
+                    }
+                }
+            }
+            p.deps = dep.toString();
+
+            out.add(p);
+        }
+        Collections.sort(out, new Comparator<Pkg>() {
+            public int compare(Pkg a, Pkg b) {
+                return b.downloads - a.downloads;
+            }
+        });
+        pkgs.clear();
+        pkgs.addAll(out);
+    }
+
+    /**
+     * 取包列表。优先读缓存（6 小时内有效），过期或没有才走网络。
+     * 回调在主线程。
+     */
+    private void ensurePkgs(final Runnable onDone) {
+        if (!pkgs.isEmpty()) {
+            ui.post(onDone);
+            return;
+        }
+        if (pkgsLoading) return;
+        pkgsLoading = true;
+
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                try {
+                    File f = tsCacheFile();
+                    boolean fresh = f.exists() && (System.currentTimeMillis() - f.lastModified() < TS_TTL_MS);
+                    String json = null;
+                    if (fresh) {
+                        try {
+                            json = readFileText(f);
+                        } catch (Exception ignore) {
+                            json = null;
+                        }
+                    }
+                    if (json == null) {
+                        byte[] raw = httpGet(TS_API, 12000, 25000);
+                        json = new String(raw, "UTF-8");
+                        try {
+                            FileOutputStream fo = new FileOutputStream(tsCacheFile());
+                            try {
+                                fo.write(raw);
+                            } finally {
+                                fo.close();
+                            }
+                        } catch (Exception ignore) {
+                        }
+                    }
+                    parsePkgs(json);
+                } catch (Exception e) {
+                    err = shortMsg(e);
+                } finally {
+                    pkgsLoading = false;
+                }
+
+                final String errMsg = err;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (errMsg != null && pkgs.isEmpty()) {
+                            toast("拉取失败：" + errMsg);
+                        }
+                        onDone.run();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private static String readFileText(File f) throws Exception {
+        FileInputStream in = new FileInputStream(f);
+        ByteArrayOutputStream bo = new ByteArrayOutputStream((int) f.length());
+        try {
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+        } finally {
+            in.close();
+        }
+        return new String(bo.toByteArray(), "UTF-8");
+    }
+
+    // ================= GitHub 搜索 =================
+
+    private void searchGitHub(String kw, final Runnable onDone) {
+        if (ghLoading) return;
+        ghLoading = true;
+        ghErr = null;
+        String k = kw == null ? "" : kw.trim();
+        final String q = k.length() == 0 ? "balatro mod" : (k + " balatro");
+
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    String url = String.format(GH_SEARCH, URLEncoder.encode(q, "UTF-8"));
+                    byte[] raw = httpGet(url, 10000, 20000);
+                    parseRepos(new String(raw, "UTF-8"));
+                } catch (Exception e) {
+                    ghErr = shortMsg(e);
+                } finally {
+                    ghLoading = false;
+                }
+                ui.post(onDone);
+            }
+        }).start();
+    }
+
+    private void parseRepos(String json) throws Exception {
+        JSONObject root = new JSONObject(json);
+        JSONArray items = root.optJSONArray("items");
+        List<Pkg> out = new ArrayList<Pkg>();
+        if (items != null) {
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject o = items.optJSONObject(i);
+                if (o == null) continue;
+                String full = o.optString("full_name", "");
+                int slash = full.indexOf('/');
+                if (slash <= 0) continue;
+
+                Pkg p = new Pkg();
+                p.source = 1;
+                p.owner = full.substring(0, slash);
+                p.name = full.substring(slash + 1);
+                p.desc = o.optString("description", "");
+                p.stars = o.optInt("stargazers_count", 0);
+                p.lang = o.optString("language", "");
+                String branch = o.optString("default_branch", "main");
+                p.version = branch;
+                p.url = "https://codeload.github.com/" + full + "/zip/refs/heads/" + branch;
+                p.size = o.optLong("size", 0L) * 1024L;   // GitHub 返回的是 KB
+                out.add(p);
+            }
+        }
+        ghRepos.clear();
+        ghRepos.addAll(out);
+    }
+
+    /** 把英文描述翻成中文。结果缓存在内存里，同一个包不重复请求。 */
+    private void translateAsync(final String en, final TextView target) {
+        if (en == null || en.trim().length() == 0) {
+            target.setVisibility(View.GONE);
+            return;
+        }
+        String hit = trCache.get(en);
+        if (hit != null) {
+            target.setText(hit);
+            return;
+        }
+        new Thread(new Runnable() {
+            public void run() {
+                String out = null;
+                try {
+                    // MyMemory 的 q 上限 500 字节，长的截断，翻个大意够用
+                    String src = en.length() > 460 ? en.substring(0, 460) : en;
+                    String url = String.format(TR_API, URLEncoder.encode(src, "UTF-8"));
+                    byte[] raw = httpGet(url, 8000, 14000);
+                    JSONObject o = new JSONObject(new String(raw, "UTF-8"));
+                    JSONObject rd = o.optJSONObject("responseData");
+                    if (rd != null) {
+                        String t = rd.optString("translatedText", "");
+                        if (t.length() > 0 && !t.toUpperCase().contains("MYMEMORY WARNING")) out = t;
+                    }
+                } catch (Exception ignore) {
+                }
+                if (out != null) trCache.put(en, out);
+                final String res = out;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (res == null) {
+                            target.setVisibility(View.GONE);
+                        } else {
+                            target.setText(res);
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
     // ================= 数据结构 =================
+
+    /** 一个可安装的包。Thunderstore 和 GitHub 两个来源共用这个结构。 */
+    static class Pkg {
+        String owner;
+        String name;
+        String desc;
+        String version;
+        String url;          // 下载地址
+        String deps;         // 逗号分隔的依赖全名，空串表示没有
+        int downloads;
+        int rating;
+        long size;           // 字节
+        int source;          // 0 = Thunderstore，1 = GitHub
+        int stars = -1;      // GitHub 星数，-1 表示不适用
+        String lang = "";    // GitHub 主语言
+
+        String fullName() {
+            return owner + "-" + name;
+        }
+    }
 
     static class Doc {
         String docId;
