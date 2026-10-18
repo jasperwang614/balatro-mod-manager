@@ -91,13 +91,13 @@ dist/                     # 已构建的 APK
 | 用途 | 地址 | 鉴权 | 限额 |
 |---|---|---|---|
 | 在线目录 | `thunderstore.io/c/balatro/api/v1/package/` | 无 | 未公开，实测 563 KB / 1.8 s |
-| GitHub 搜索 | `api.github.com/search/repositories` | 无 | 未登录 10 次/分钟（按 IP） |
+| GitHub 搜索 | `api.github.com/search/repositories` | 无 | 未登录 10 次/分钟（按 IP，每翻一页算一次） |
 | 仓库 zip 下载 | `codeload.github.com/{owner}/{repo}/zip/...` | 无 | 无特殊限制 |
 | 英文描述翻译 | `api.mymemory.translated.net/get` | 无 | 匿名约 5000 字符/天/IP |
 
 几个取舍：
 
-- GitHub 搜索**未登录**是按 IP 限流的，公共 Wi-Fi 下多人共用出口可能被 403。此时列表会显示重试按钮，已缓存的目录不受影响。
+- GitHub 搜索**未登录**是按 IP 限流的（实测 `search` 剩余 10/10、窗口 60 秒）。公共 Wi-Fi 下多人共用出口可能被 403，此时列表显示重试按钮，已缓存的目录不受影响。默认分支来自搜索结果里的 `default_branch` 字段，下载时不再额外调接口。
 - MyMemory 是公益免费服务，额度耗尽时返回的不是错误页而是空结果。代码里把它当「翻不出来」处理，那一行直接不渲染，不会挡着看英文。
 - Google 翻译的免费端点（`translate.googleapis.com`）在国内直连不通，实测 10 秒超时，所以没用它。
 - 目录缓存 6 小时，缓存期内完全不联网。
