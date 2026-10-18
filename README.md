@@ -71,10 +71,12 @@ strip_mp.py               # 剥离 MethodParameters
 assets/m6x11plus.ttf      # 游戏原版像素字体
 java/com/balatro/modmanager/MainActivity.java
 res/                      # 主题、图标、字符串
-tools/                    # 开发期辅助：着色器移植预览、PNG 取色、API 推送
+tools/                    # 开发期辅助：着色器移植预览、PNG 取色、图标切图、API 推送
 docs/                     # README 配图
 dist/                     # 已构建的 APK
 ```
+
+`tools/make_icon.py` 把一张带灰底的方形 logo 图切成全套启动器图标：自动探测外接框 → 从四角泛洪抠掉圆角外的灰底 → 输出 legacy 图标和 adaptive icon 前景（108dp 画布、logo 占 76dp）。换图标只需重跑一次，`res/mipmap-*/` 会整体覆盖。
 
 `MainActivity.java` 里值得一提的几处：
 
