@@ -21,7 +21,8 @@
 
 ## 安装
 
-1. 下载 Releases 里的 `BalatroMods.apk`，装到手机。
+1. 下载 [`dist/BalatroMods.apk`](dist/BalatroMods.apk)，装到手机。
+   （这是用仓库里的测试签名 `mm.keystore` 签的。如果你自己重新构建，签名不同，需要先卸载再装。）
 2. 首次打开从右上角 `⋮` 里选一次存档目录：`Documents/Balatro/game/save/Mods`（走系统 SAF 授权，只对这一处有读写权）。
 3. 授权一次后长期有效。
 
@@ -66,6 +67,7 @@ java/com/balatro/modmanager/MainActivity.java
 res/                      # 主题、图标、字符串
 tools/                    # 开发期辅助：着色器移植预览、PNG 取色
 docs/                     # README 配图
+dist/                     # 已构建的 APK
 ```
 
 `MainActivity.java` 里值得一提的几处：
