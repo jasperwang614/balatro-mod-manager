@@ -71,7 +71,7 @@ strip_mp.py               # 剥离 MethodParameters
 assets/m6x11plus.ttf      # 游戏原版像素字体
 java/com/balatro/modmanager/MainActivity.java
 res/                      # 主题、图标、字符串
-tools/                    # 开发期辅助：着色器移植预览、PNG 取色
+tools/                    # 开发期辅助：着色器移植预览、PNG 取色、API 推送
 docs/                     # README 配图
 dist/                     # 已构建的 APK
 ```
@@ -81,6 +81,26 @@ dist/                     # 已构建的 APK
 - `Swirl` —— `background.fs` 的 Java 移植，低分辨率位图（190px 宽）+ 20 FPS + 查表三角函数，实测占用可忽略。
 - `PixelPanel` —— 阶梯方块的贴纸边框，全程关抗锯齿；小面积用色带填充，大面积退化成纯色（否则横向色带像百叶窗）。
 - `display()` —— 像素字体按 11px 网格吸附字号，因为该字体行高只报 0.82em，不补内边距会裁掉上下缘。
+
+`tools/gh_api_push.py` 是给网络受限环境准备的兜底：当 `github.com:443` 不通、只有 `api.github.com` 能连时，`git push` 会失败，这个脚本改用 Git Data API 复刻本地提交（上传 blob → 以父树为 base 建树 → 建 commit → 更新 ref），效果等价于推送。凭据从 `git credential fill` 现取，不写进任何文件。它只推一个提交，不替代日常 `git push`。
+
+## 用到的外部接口
+
+四个全部公开、**都不需要申请 API Key**，也都不需要登录，App 里没有任何写死的密钥或 token：
+
+| 用途 | 地址 | 鉴权 | 限额 |
+|---|---|---|---|
+| 在线目录 | `thunderstore.io/c/balatro/api/v1/package/` | 无 | 未公开，实测 563 KB / 1.8 s |
+| GitHub 搜索 | `api.github.com/search/repositories` | 无 | 未登录 10 次/分钟（按 IP） |
+| 仓库 zip 下载 | `codeload.github.com/{owner}/{repo}/zip/...` | 无 | 无特殊限制 |
+| 英文描述翻译 | `api.mymemory.translated.net/get` | 无 | 匿名约 5000 字符/天/IP |
+
+几个取舍：
+
+- GitHub 搜索**未登录**是按 IP 限流的，公共 Wi-Fi 下多人共用出口可能被 403。此时列表会显示重试按钮，已缓存的目录不受影响。
+- MyMemory 是公益免费服务，额度耗尽时返回的不是错误页而是空结果。代码里把它当「翻不出来」处理，那一行直接不渲染，不会挡着看英文。
+- Google 翻译的免费端点（`translate.googleapis.com`）在国内直连不通，实测 10 秒超时，所以没用它。
+- 目录缓存 6 小时，缓存期内完全不联网。
 
 ## 已知限制
 
