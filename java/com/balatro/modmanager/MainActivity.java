@@ -58,9 +58,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -2210,6 +2212,9 @@ public class MainActivity extends Activity {
         Sheet s = new Sheet(p.name,
                 p.source == 1 ? (p.owner + " · " + p.version + " 分支") : (p.owner + " · v" + p.version));
 
+        // 缺哪些依赖先算出来，正文和按钮都要用
+        final List<Pkg> need = p.source == 0 ? resolveDeps(p) : new ArrayList<Pkg>();
+
         StringBuilder b = new StringBuilder();
         if (p.desc.length() > 0) b.append(p.desc);
 
@@ -2227,10 +2232,12 @@ public class MainActivity extends Activity {
                     .append("  ·  体积 ").append(human(p.size));
             if (p.deps.length() > 0) {
                 b.append("\n\n依赖：").append(p.deps)
-                        .append("\n（不会自动安装，缺的话游戏里会报错）");
+                        .append(need.isEmpty()
+                                ? "\n（都已经在 Mods 里了）"
+                                : "\n（点安装会问你要不要一起装）");
             }
         }
-        b.append("\n\n会装到 Mods/").append(p.fullName()).append("/");
+        b.append("\n\n会装到 Mods/").append(installDirFor(p)).append("/");
         s.text(b.toString());
 
         // 英文描述自动翻一份中文，异步加载，翻译失败就整行隐藏
@@ -2243,17 +2250,129 @@ public class MainActivity extends Activity {
             translateAsync(p.desc, zh);
         }
 
-        s.primary("下载并安装", new Runnable() {
-            public void run() {
-                s.dismiss();
-                downloadPkg(p);
-            }
-        });
+        s.primary(need.isEmpty() ? "下载并安装" : ("下载并安装（含 " + need.size() + " 个依赖）"),
+                new Runnable() {
+                    public void run() {
+                        s.dismiss();
+                        if (need.isEmpty()) {
+                            List<Pkg> one = new ArrayList<Pkg>();
+                            one.add(p);
+                            installQueue(one, p.name);
+                        } else {
+                            confirmDeps(p, need);
+                        }
+                    }
+                });
         s.secondary("取消");
         s.show();
     }
 
-    private void downloadPkg(final Pkg p) {
+    /**
+     * 包在 Mods 里应该叫什么目录。
+     * Steamodded 例外：游戏按 smods 这个名字找它，装成 Steamodded-Steamodded 不生效。
+     */
+    private String targetDirOf(Pkg p) {
+        if ("Steamodded".equalsIgnoreCase(p.owner) && "Steamodded".equalsIgnoreCase(p.name)) return "smods";
+        return p.fullName();
+    }
+
+    private Pkg findPkgById(String id) {
+        for (int i = 0; i < pkgs.size(); i++) {
+            Pkg x = pkgs.get(i);
+            if (x.fullName().equalsIgnoreCase(id)) return x;
+        }
+        return null;
+    }
+
+    /**
+     * Mods 里已有的对应目录名，没有则返回 null。
+     * 匹配要放宽：Thunderstore 的包习惯叫 owner-name，而手动装的 mod
+     * 目录通常只有 name（你现在的 Amulet、Cryptid 都是这种）。
+     * 只按一种规则判，会把已经装过的再装一份，游戏里就重复加载了。
+     */
+    private String existingDirFor(Pkg p) {
+        String want = targetDirOf(p);
+        String hitShort = null;
+        for (int i = 0; i < lastRows.size(); i++) {
+            Row r = lastRows.get(i);
+            if (r.doc == null || !r.doc.isDir) continue;
+            if (r.doc.name.equalsIgnoreCase(want)) return r.doc.name;
+            if (hitShort == null && r.doc.name.equalsIgnoreCase(p.name)) hitShort = r.doc.name;
+        }
+        return hitShort;
+    }
+
+    /** 有旧目录就装回旧目录，没有才用标准命名 */
+    private String installDirFor(Pkg p) {
+        String ex = existingDirFor(p);
+        return ex != null ? ex : targetDirOf(p);
+    }
+
+    private boolean installedInList(Pkg p) {
+        return existingDirFor(p) != null;
+    }
+
+    /**
+     * 找出这个包缺的依赖，按"深的在前"排好，先装依赖再装本体。
+     * 两条规矩：
+     *   · lovely 已经编译进游戏包（liblovely.so），Thunderstore 上那个是给 PC 用的，跳过
+     *   · 装过的包本身跳过，但它的依赖还是要往下查，防止依赖的依赖缺
+     */
+    private List<Pkg> resolveDeps(Pkg root) {
+        List<Pkg> order = new ArrayList<Pkg>();
+        collectDeps(root, order, new HashSet<String>());
+        return order;
+    }
+
+    private void collectDeps(Pkg p, List<Pkg> order, Set<String> seen) {
+        for (int i = 0; i < p.depIds.size(); i++) {
+            String id = p.depIds.get(i);
+            if ("Thunderstore-lovely".equalsIgnoreCase(id)) continue;
+            String key = id.toLowerCase();
+            if (seen.contains(key)) continue;
+            seen.add(key);
+            Pkg d = findPkgById(id);
+            if (d == null) continue;                    // 商店里查不到，只能放过
+            collectDeps(d, order, seen);
+            if (!installedInList(d)) order.add(d);
+        }
+    }
+
+    /** 装之前先把依赖列清楚，让用户自己决定要不要一起装 */
+    private void confirmDeps(final Pkg p, final List<Pkg> need) {
+        final Sheet c = new Sheet("这个 mod 还缺 " + need.size() + " 个依赖", p.name);
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < need.size(); i++) {
+            Pkg d = need.get(i);
+            b.append("· ").append(d.name).append("   ").append(human(d.size));
+            if ("smods".equals(targetDirOf(d))) b.append("   ← Steamodded 本体");
+            b.append("\n");
+        }
+        b.append("\n会先装依赖，最后装本体。之后想卸载，它们会各自出现在列表里。");
+        c.text(b.toString());
+
+        c.primary("一起装", new Runnable() {
+            public void run() {
+                c.dismiss();
+                List<Pkg> all = new ArrayList<Pkg>(need);
+                all.add(p);
+                installQueue(all, p.name);
+            }
+        });
+        c.primary("只装本体", new Runnable() {
+            public void run() {
+                c.dismiss();
+                List<Pkg> one = new ArrayList<Pkg>();
+                one.add(p);
+                installQueue(one, p.name);
+            }
+        }, C_CYAN);
+        c.secondary("取消");
+        c.show();
+    }
+
+    /** 串行装一串包。单个失败不中断，最后统一报结果。 */
+    private void installQueue(final List<Pkg> list, final String lead) {
         if (modsDocId == null) {
             toast("请先选择目录");
             return;
@@ -2262,58 +2381,88 @@ public class MainActivity extends Activity {
             toast("还有操作在进行");
             return;
         }
+        if (list.isEmpty()) return;
         busy = true;
-        final String target = p.fullName();
-        browseInfo.setText("准备下载 " + p.name + " …");
-        browseBar.setProgress(0.01f);
+        final int total = list.size();
+        if (browseBar != null) browseBar.setProgress(0.01f);
 
         new Thread(new Runnable() {
             public void run() {
-                final File tmp = new File(getCacheDir(), "dl.zip");
-                String err = null;
-                int count = 0;
-                try {
-                    downloadTo(p.url, tmp);
+                int ok = 0;
+                String fail = null;
+                final List<String> done = new ArrayList<String>();
+                for (int i = 0; i < total; i++) {
+                    final Pkg p = list.get(i);
+                    final int n = i + 1;
                     ui.post(new Runnable() {
                         public void run() {
-                            if (browseBar != null) browseBar.setIndeterminate();
-                            if (browseInfo != null) browseInfo.setText("正在解压 " + p.name + " …");
+                            if (browseInfo != null) {
+                                browseInfo.setText(total > 1
+                                        ? ("安装 " + n + "/" + total + "：" + p.name)
+                                        : ("准备下载 " + p.name + " …"));
+                            }
+                            if (browseBar != null) browseBar.setProgress((float) n / total);
                         }
                     });
-                    count = p.source == 1 ? extractGitHub(tmp, target) : extractToMods(tmp, target);
-                } catch (Exception e) {
-                    err = shortMsg(e);
-                } finally {
+                    final File tmp = new File(getCacheDir(), "dl.zip");
                     try {
-                        if (tmp.exists()) tmp.delete();
-                    } catch (Throwable ignore) {
+                        downloadTo(p.url, tmp);
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (browseBar != null) browseBar.setIndeterminate();
+                                if (browseInfo != null) browseInfo.setText("正在解压 " + p.name + " …");
+                            }
+                        });
+                        String dir = installDirFor(p);
+                        if (p.source == 1) extractGitHub(tmp, dir);
+                        else extractToMods(tmp, dir);
+                        done.add(dir);
+                        ok++;
+                    } catch (Exception e) {
+                        if (fail == null) fail = p.name + "：" + shortMsg(e);
+                    } finally {
+                        try {
+                            if (tmp.exists()) tmp.delete();
+                        } catch (Throwable ignore) {
+                        }
                     }
                 }
 
-                final String e2 = err;
-                final int c2 = count;
+                final int okN = ok;
+                final String err = fail;
                 ui.post(new Runnable() {
                     public void run() {
                         busy = false;
                         if (browseBar != null) browseBar.setIdle();
-                        if (e2 != null) {
-                            if (browseInfo != null) browseInfo.setText("安装失败：" + e2);
-                            toast("安装失败：" + e2);
-                        } else {
-                            if (browseInfo != null) {
-                                browseInfo.setText("已安装 " + p.name + " · " + c2 + " 个文件");
+                        // 先把装好的塞进缓存，否则回列表还显示 GET
+                        for (int i = 0; i < done.size(); i++) {
+                            String dir = done.get(i);
+                            boolean has = false;
+                            for (int k = 0; k < lastRows.size(); k++) {
+                                Row rr = lastRows.get(k);
+                                if (rr.doc != null && dir.equalsIgnoreCase(rr.doc.name)) { has = true; break; }
                             }
-                            toast("已安装 " + p.name);
-                            // 先把新装的记进 lastRows，再重画，否则回到列表还是显示 GET
+                            if (has) continue;
                             Row nr = new Row();
                             nr.doc = new Doc();
-                            nr.doc.name = target;
+                            nr.doc.name = dir;
                             nr.doc.isDir = true;
                             nr.state = ST_OK;
                             lastRows.add(nr);
-                            renderBrowseList();
-                            refresh();
                         }
+                        renderBrowseList();
+                        if (err != null) {
+                            if (browseInfo != null) browseInfo.setText("部分失败：" + err);
+                            toast("装好 " + okN + " 个，" + err);
+                        } else {
+                            if (browseInfo != null) {
+                                browseInfo.setText(total > 1
+                                        ? ("已安装 " + lead + " 及 " + (total - 1) + " 个依赖")
+                                        : ("已安装 " + lead));
+                            }
+                            toast("已安装 " + lead);
+                        }
+                        refresh();
                     }
                 });
             }
@@ -3266,12 +3415,15 @@ public class MainActivity extends Activity {
                 for (int k = 0; k < ds.length(); k++) {
                     String s = ds.optString(k, "");
                     if (s.length() == 0) continue;
-                    // Thunderstore-lovely-0.9.0 → lovely
-                    String[] seg = s.split("-");
-                    if (seg.length >= 2) {
-                        if (dep.length() > 0) dep.append(" · ");
-                        dep.append(seg[1]);
-                    }
+                    // 格式是 Owner-Name-1.2.3，版本号里不带 '-'，
+                    // 所以从右往左切一刀就是完整的 owner-name，包名自身带 '-' 也不会切坏
+                    int cut = s.lastIndexOf('-');
+                    String id = cut > 0 ? s.substring(0, cut) : s;
+                    p.depIds.add(id);
+                    int dash = id.indexOf('-');
+                    String shortName = dash >= 0 ? id.substring(dash + 1) : id;
+                    if (dep.length() > 0) dep.append(" · ");
+                    dep.append(shortName);
                 }
             }
             p.deps = dep.toString();
@@ -3465,7 +3617,8 @@ public class MainActivity extends Activity {
         String desc;
         String version;
         String url;          // 下载地址
-        String deps;         // 逗号分隔的依赖全名，空串表示没有
+        String deps;         // 展示用的依赖名，·分隔，空串表示没有
+        List<String> depIds = new ArrayList<String>();  // 完整 owner-name，用于查包
         int downloads;
         int rating;
         long size;           // 字节
