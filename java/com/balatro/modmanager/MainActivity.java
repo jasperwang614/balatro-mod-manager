@@ -2225,11 +2225,11 @@ public class MainActivity extends Activity {
             b.append("\n\n★ ").append(humanNum(p.stars))
                     .append("  ·  ").append(p.lang.length() > 0 ? p.lang : "未知语言")
                     .append("  ·  仓库 ").append(human(p.size));
+            b.append("\n\n这个「仓库」是 git 全量，含所有历史提交、所有分支和 .git 目录。")
+                    .append("实际下载的是默认分支的最新快照 zip，通常比它小得多——")
+                    .append("所以几百 MB 的仓库也可能几秒就下完。");
             b.append("\n\nGitHub 仓库不一定都能直接装：会下载默认分支的 zip，")
                     .append("剥掉最外层目录后放进 Mods/。里面没有 .lua 的会被拒绝。");
-            if (p.size > 20L * 1024 * 1024) {
-                b.append("\n\n注意：这个仓库有 ").append(human(p.size)).append("，下载会比较久。");
-            }
         } else {
             b.append("\n\n下载量 ").append(humanNum(p.downloads))
                     .append("  ·  体积 ").append(human(p.size));
@@ -2510,22 +2510,39 @@ public class MainActivity extends Activity {
                     fo.write(buf, 0, n);
                     done += n;
                     long now = SystemClock.uptimeMillis();
-                    if (total > 0 && now - last > 120) {
+                    if (now - last > 120) {
                         last = now;
-                        final float local = Math.min(0.97f, done / (float) total);
-                        // 批量装时要把"第几个包"折算进去，否则进度条每装完一个就从头再来一遍
-                        final float f = dlCount > 1 ? (dlIdx + local) / dlCount : local;
-                        ui.post(new Runnable() {
-                            public void run() {
-                                if (browseBar != null) browseBar.setProgress(f);
-                                if (browseInfo != null) {
-                                    String pre = dlCount > 1
-                                            ? ("安装 " + (dlIdx + 1) + "/" + dlCount + "：" + dlName + "  ")
-                                            : "";
-                                    browseInfo.setText(pre + "下载 " + (int) (local * 100) + "%");
+                        if (total > 0) {
+                            final float local = Math.min(0.97f, done / (float) total);
+                            // 批量装时要把"第几个包"折算进去，否则进度条每装完一个就从头再来一遍
+                            final float f = dlCount > 1 ? (dlIdx + local) / dlCount : local;
+                            ui.post(new Runnable() {
+                                public void run() {
+                                    if (browseBar != null) browseBar.setProgress(f);
+                                    if (browseInfo != null) {
+                                        String pre = dlCount > 1
+                                                ? ("安装 " + (dlIdx + 1) + "/" + dlCount + "：" + dlName + "  ")
+                                                : "";
+                                        browseInfo.setText(pre + "下载 " + (int) (local * 100) + "%");
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        } else {
+                            // codeload 是即时打包 + chunked 传输，HEAD 也拿不到 Content-Length。
+                            // 报不了百分比就报已下载了多少，至少能看出没卡死。
+                            final long d = done;
+                            ui.post(new Runnable() {
+                                public void run() {
+                                    if (browseBar != null) browseBar.setIndeterminate();
+                                    if (browseInfo != null) {
+                                        String pre = dlCount > 1
+                                                ? ("安装 " + (dlIdx + 1) + "/" + dlCount + "：" + dlName + "  ")
+                                                : "";
+                                        browseInfo.setText(pre + "已下载 " + human(d));
+                                    }
+                                }
+                            });
+                        }
                     }
                 }
             } finally {
