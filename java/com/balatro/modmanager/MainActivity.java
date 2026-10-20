@@ -149,6 +149,9 @@ public class MainActivity extends Activity {
     private TextView tabTs, tabGh;
     private String browseQuery = "";
     private int browseLimit = 60;
+    private int dlIdx = 0;                // 当前在装第几个（0 起）
+    private int dlCount = 0;              // 这一批一共几个包，0 表示不是批量安装
+    private String dlName = "";           // 当前包名，进度文案里用
     private final Runnable ghDebounce = new Runnable() {
         public void run() {
             searchGitHub(browseQuery, new Runnable() {
@@ -2394,14 +2397,20 @@ public class MainActivity extends Activity {
                 for (int i = 0; i < total; i++) {
                     final Pkg p = list.get(i);
                     final int n = i + 1;
+                    final int idx = i;
+                    dlIdx = i;
+                    dlCount = total;
+                    dlName = p.name;
                     ui.post(new Runnable() {
                         public void run() {
                             if (browseInfo != null) {
                                 browseInfo.setText(total > 1
-                                        ? ("安装 " + n + "/" + total + "：" + p.name)
+                                        ? ("安装 " + n + "/" + total + "：" + p.name + "  准备下载…")
                                         : ("准备下载 " + p.name + " …"));
                             }
-                            if (browseBar != null) browseBar.setProgress((float) n / total);
+                            // 这里只走到"装完的包数"，别提前跳到 n/total，
+                            // 否则下载一开始进度条会往回退
+                            if (browseBar != null) browseBar.setProgress((float) idx / total);
                         }
                     });
                     final File tmp = new File(getCacheDir(), "dl.zip");
@@ -2409,8 +2418,14 @@ public class MainActivity extends Activity {
                         downloadTo(p.url, tmp);
                         ui.post(new Runnable() {
                             public void run() {
-                                if (browseBar != null) browseBar.setIndeterminate();
-                                if (browseInfo != null) browseInfo.setText("正在解压 " + p.name + " …");
+                                if (browseBar != null) {
+                                    browseBar.setProgress((idx + 0.98f) / total);
+                                }
+                                if (browseInfo != null) {
+                                    browseInfo.setText(total > 1
+                                            ? ("安装 " + n + "/" + total + "：" + p.name + "  解压中…")
+                                            : ("正在解压 " + p.name + " …"));
+                                }
                             }
                         });
                         String dir = installDirFor(p);
@@ -2433,6 +2448,9 @@ public class MainActivity extends Activity {
                 ui.post(new Runnable() {
                     public void run() {
                         busy = false;
+                        dlCount = 0;
+                        dlIdx = 0;
+                        dlName = "";
                         if (browseBar != null) browseBar.setIdle();
                         // 先把装好的塞进缓存，否则回列表还显示 GET
                         for (int i = 0; i < done.size(); i++) {
@@ -2494,12 +2512,17 @@ public class MainActivity extends Activity {
                     long now = SystemClock.uptimeMillis();
                     if (total > 0 && now - last > 120) {
                         last = now;
-                        final float f = Math.min(0.97f, done / (float) total);
+                        final float local = Math.min(0.97f, done / (float) total);
+                        // 批量装时要把"第几个包"折算进去，否则进度条每装完一个就从头再来一遍
+                        final float f = dlCount > 1 ? (dlIdx + local) / dlCount : local;
                         ui.post(new Runnable() {
                             public void run() {
                                 if (browseBar != null) browseBar.setProgress(f);
                                 if (browseInfo != null) {
-                                    browseInfo.setText("下载中 " + (int) (f * 100) + "%");
+                                    String pre = dlCount > 1
+                                            ? ("安装 " + (dlIdx + 1) + "/" + dlCount + "：" + dlName + "  ")
+                                            : "";
+                                    browseInfo.setText(pre + "下载 " + (int) (local * 100) + "%");
                                 }
                             }
                         });
