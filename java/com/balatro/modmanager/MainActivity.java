@@ -61,6 +61,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -184,11 +185,11 @@ public class MainActivity extends Activity {
             modsDocId = m;
             refresh();
         } else {
-            setHead("等待授权", 0);
-            pathTv.setText("尚未选择目录");
-            renderEmpty("还没有连接存档目录",
-                    "依次进入 Documents → Balatro → game → save",
-                    "选择目录", new Runnable() {
+            setHead(getString(R.string.wait_auth), 0);
+            pathTv.setText(getString(R.string.no_dir_selected));
+            renderEmpty(getString(R.string.no_save_dir),
+                    getString(R.string.go_to_save_dir),
+                    getString(R.string.select_folder), new Runnable() {
                         public void run() {
                             pickTree();
                         }
@@ -309,7 +310,7 @@ public class MainActivity extends Activity {
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = display("MOD MANAGER", 27f, C_INK);
         title.setShadowLayer(dp(8), 0, dp(2), 0xC0000000);
-        TextView titleCn = label("模组管理器", 11f, 0xFFA9C0C4, Typeface.NORMAL);
+        TextView titleCn = label(getString(R.string.app_title), 11f, 0xFFA9C0C4, Typeface.NORMAL);
         titleCn.setPadding(dp(10), 0, 0, dp(4));
         titleRow.addView(title);
         titleRow.addView(titleCn);
@@ -352,7 +353,7 @@ public class MainActivity extends Activity {
 
         TextView dot = label("●", 7f, C_CYAN, Typeface.NORMAL);
         dot.setPadding(0, 0, dp(7), 0);
-        pathTv = mono("尚未选择目录", 9f, 0xFFAEC4C8);
+        pathTv = mono(getString(R.string.no_dir_selected), 9f, 0xFFAEC4C8);
         chipRow.addView(dot);
         chipRow.addView(pathTv);
         head.addView(chipRow);
@@ -380,8 +381,8 @@ public class MainActivity extends Activity {
         LinearLayout stats = new LinearLayout(this);
         stats.setOrientation(LinearLayout.HORIZONTAL);
         statMods = addStat(stats, "MOD", C_GOLD, 0);
-        statItems = addStat(stats, "条目", C_CYAN, 1);
-        statPatches = addStat(stats, "补丁", C_PURPLE, 2);
+        statItems = addStat(stats, getString(R.string.stat_entries), C_CYAN, 1);
+        statPatches = addStat(stats, getString(R.string.stat_patches), C_PURPLE, 2);
         body.addView(stats, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(62)));
 
@@ -419,7 +420,7 @@ public class MainActivity extends Activity {
                 pickZip();
             }
         });
-        dock.addView(dockCell(install, "安装模组", 0, 1f, 0));
+        dock.addView(dockCell(install, getString(R.string.dock_install_mod), 0, 1f, 0));
 
         TextView browseBtn = pxButton("BROWSE", 12f, C_CYAN, 0xFF0B0E10, false);
         browseBtn.setOnClickListener(new View.OnClickListener() {
@@ -427,21 +428,21 @@ public class MainActivity extends Activity {
                 showBrowse();
             }
         });
-        dock.addView(dockCell(browseBtn, "热门", dp(74), 0f, dp(6)));
+        dock.addView(dockCell(browseBtn, getString(R.string.dock_hot), dp(74), 0f, dp(6)));
 
         TextView refreshBtn = pxSmall("REFRESH", new View.OnClickListener() {
             public void onClick(View v) {
                 refresh();
             }
         });
-        dock.addView(dockCell(refreshBtn, "刷新", dp(62), 0f, dp(6)));
+        dock.addView(dockCell(refreshBtn, getString(R.string.dock_refresh), dp(62), 0f, dp(6)));
 
         TextView logBtn = pxSmall("LOGS", new View.OnClickListener() {
             public void onClick(View v) {
                 showLog();
             }
         });
-        dock.addView(dockCell(logBtn, "日志", dp(62), 0f, dp(6)));
+        dock.addView(dockCell(logBtn, getString(R.string.dock_log), dp(62), 0f, dp(6)));
 
         root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             public WindowInsets onApplyWindowInsets(View v, WindowInsets ins) {
@@ -684,12 +685,12 @@ public class MainActivity extends Activity {
         try {
             startActivityForResult(i, REQ_TREE);
         } catch (Exception e) {
-            toast("系统里找不到文件选择器");
+            toast(getString(R.string.err_no_file_picker));
         }
     }
 
     private void bindTree(final Uri u) {
-        setHead("识别中", C_GOLD);
+        setHead(getString(R.string.head_detecting), C_GOLD);
         bar.setIndeterminate();
         new Thread(new Runnable() {
             public void run() {
@@ -710,10 +711,10 @@ public class MainActivity extends Activity {
                         post(new Runnable() {
                             public void run() {
                                 bar.setIdle();
-                                setHead("未找到", C_RED);
-                                renderEmpty("这里没有 Mods 文件夹",
-                                        "你选的是「" + fname + "」，请退到 save 这一层再选",
-                                        "重新选择", new Runnable() {
+                                setHead(getString(R.string.head_not_found), C_RED);
+                                renderEmpty(getString(R.string.empty_no_mods),
+                                        getString(R.string.selected_prefix) + fname + getString(R.string.selected_suffix),
+                                        getString(R.string.select_again), new Runnable() {
                                             public void run() {
                                                 pickTree();
                                             }
@@ -735,8 +736,8 @@ public class MainActivity extends Activity {
                     post(new Runnable() {
                         public void run() {
                             bar.setIdle();
-                            setHead("读取失败", C_RED);
-                            renderEmpty("目录读取失败", shortMsg(e));
+                            setHead(getString(R.string.head_read_failed), C_RED);
+                            renderEmpty(getString(R.string.empty_read_failed), shortMsg(e));
                         }
                     });
                 }
@@ -814,7 +815,7 @@ public class MainActivity extends Activity {
         Uri pu = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentId);
         Uri created = DocumentsContract.createDocument(getContentResolver(), pu,
                 DocumentsContract.Document.MIME_TYPE_DIR, name);
-        if (created == null) throw new IOException("无法创建目录 " + name);
+        if (created == null) throw new IOException(getString(R.string.err_create_dir) + name);
         return DocumentsContract.getDocumentId(created);
     }
 
@@ -886,8 +887,8 @@ public class MainActivity extends Activity {
 
     private void refresh() {
         if (treeUri == null || modsDocId == null) {
-            renderEmpty("还没有连接存档目录", "从右上角「⋮」里选择目录",
-                    "选择目录", new Runnable() {
+            renderEmpty(getString(R.string.no_save_dir), getString(R.string.empty_pick_from_menu),
+                    getString(R.string.select_folder), new Runnable() {
                         public void run() {
                             pickTree();
                         }
@@ -896,7 +897,7 @@ public class MainActivity extends Activity {
         }
         if (busy) return;
         busy = true;
-        setHead("扫描中", C_GOLD);
+        setHead(getString(R.string.head_scanning), C_GOLD);
         bar.setIndeterminate();
         final String mid = modsDocId;
         new Thread(new Runnable() {
@@ -935,10 +936,10 @@ public class MainActivity extends Activity {
                             statMods.setText(String.valueOf(fm));
                             statItems.setText(String.valueOf(fr.size()));
                             statPatches.setText(patches < 0 ? "—" : String.valueOf(patches));
-                            setHead(fm > 0 ? "已连接" : "空目录",
+                            setHead(fm > 0 ? getString(R.string.head_connected) : getString(R.string.head_empty_dir),
                                     fm > 0 ? C_GREEN : C_ORANGE);
                             pathTv.setText("Documents/Balatro/game/save/Mods");
-                            if (pruned > 0) toast("已清理 " + pruned + " 个过期日志");
+                            if (pruned > 0) toast(getString(R.string.toast_cleaned_prefix) + pruned + getString(R.string.toast_cleaned_suffix));
                             renderRows(fr);
                         }
                     });
@@ -947,8 +948,8 @@ public class MainActivity extends Activity {
                         public void run() {
                             busy = false;
                             bar.setIdle();
-                            setHead("读取失败", C_RED);
-                            renderEmpty("读取失败", shortMsg(e));
+                            setHead(getString(R.string.head_read_failed), C_RED);
+                            renderEmpty(getString(R.string.head_read_failed), shortMsg(e));
                         }
                     });
                 }
@@ -1051,8 +1052,8 @@ public class MainActivity extends Activity {
         lastRows = rows;
         listBox.removeAllViews();
         if (rows.isEmpty()) {
-            renderEmpty("目录是空的", "用「安装 ZIP」把 mod 放进来",
-                    "安装 ZIP", new Runnable() {
+            renderEmpty(getString(R.string.empty_dir_title), getString(R.string.empty_install_zip_hint),
+                    getString(R.string.btn_install_zip), new Runnable() {
                         public void run() {
                             pickZip();
                         }
@@ -1074,19 +1075,19 @@ public class MainActivity extends Activity {
 
         int idx = 0;
         if (!mods.isEmpty()) {
-            section("已装载", mods.size(), listBox);
+            section(getString(R.string.section_loaded), mods.size(), listBox);
             for (Row r : mods) addRow(r, idx++, listBox);
         }
         if (!bad.isEmpty()) {
-            section("需要处理", bad.size(), listBox);
+            section(getString(R.string.section_needs_work), bad.size(), listBox);
             for (Row r : bad) addRow(r, idx++, listBox);
         }
         if (!sys.isEmpty()) {
-            section("系统", sys.size(), listBox);
+            section(getString(R.string.section_system), sys.size(), listBox);
             for (Row r : sys) addRow(r, idx++, listBox);
         }
 
-        TextView foot = label("点任意一项可以重命名或删除 · 改动后重启游戏生效",
+        TextView foot = label(getString(R.string.foot_tap_hint),
                 10.5f, 0x77FFFFFF, Typeface.NORMAL);
         foot.setGravity(Gravity.CENTER);
         foot.setPadding(0, dp(16), 0, 0);
@@ -1157,24 +1158,24 @@ public class MainActivity extends Activity {
             String label;
             int color;
             if ("lovely".equalsIgnoreCase(r.doc.name)) {
-                label = "日志";
+                label = getString(R.string.dock_log);
                 color = 0xFF6E8790;
             } else if ("smods".equalsIgnoreCase(r.doc.name)) {
-                label = "框架";
+                label = getString(R.string.badge_framework);
                 color = 0xFF5AA9FF;
             } else if (r.state == ST_OK) {
-                label = "已识别";
+                label = getString(R.string.badge_recognized);
                 color = C_GREEN;
             } else if (r.state == ST_NESTED) {
-                label = "套了一层";
+                label = getString(R.string.badge_nested);
                 color = C_ORANGE;
             } else {
-                label = "未识别";
+                label = getString(R.string.badge_unrecognized);
                 color = 0xFF8C9BA2;
             }
             card.addView(badge(label, color));
         } else {
-            card.addView(badge("文件", 0xFF8C9BA2));
+            card.addView(badge(getString(R.string.badge_file), 0xFF8C9BA2));
         }
 
         card.setOnClickListener(new View.OnClickListener() {
@@ -1206,20 +1207,20 @@ public class MainActivity extends Activity {
 
     private void showActions(final Row r) {
         final Sheet s = new Sheet(r.doc.name,
-                r.doc.isDir ? (r.childCount + " 项 · " + stateText(r)) : human(r.doc.size));
+                r.doc.isDir ? (r.childCount + getString(R.string.row_items_sep) + stateText(r)) : human(r.doc.size));
         if (r.doc.isDir) {
-            s.row("重命名", "改名或加后缀停用", C_CYAN, new Runnable() {
+            s.row(getString(R.string.row_rename), getString(R.string.row_rename_hint), C_CYAN, new Runnable() {
                 public void run() {
                     doRename(r.doc);
                 }
             });
         }
-        s.row("查看详情", "", C_MUTED, new Runnable() {
+        s.row(getString(R.string.row_view_details), "", C_MUTED, new Runnable() {
             public void run() {
                 showDetail(r);
             }
         });
-        s.row("删除", "连同内部文件一起删掉", C_RED, new Runnable() {
+        s.row(getString(R.string.row_delete), getString(R.string.row_delete_hint), C_RED, new Runnable() {
             public void run() {
                 confirmDelete(r.doc);
             }
@@ -1228,12 +1229,12 @@ public class MainActivity extends Activity {
     }
 
     private String stateText(Row r) {
-        if (!r.doc.isDir) return "文件";
-        if ("lovely".equalsIgnoreCase(r.doc.name)) return "Lovely 日志目录";
-        if ("smods".equalsIgnoreCase(r.doc.name)) return "Steamodded 本体";
-        if (r.state == ST_OK) return "已识别为 mod";
-        if (r.state == ST_NESTED) return "里面多套了一层";
-        return "找不到入口文件";
+        if (!r.doc.isDir) return getString(R.string.badge_file);
+        if ("lovely".equalsIgnoreCase(r.doc.name)) return getString(R.string.state_lovely_dir);
+        if ("smods".equalsIgnoreCase(r.doc.name)) return getString(R.string.state_smods);
+        if (r.state == ST_OK) return getString(R.string.state_recognized);
+        if (r.state == ST_NESTED) return getString(R.string.state_nested);
+        return getString(R.string.state_no_entry);
     }
 
     private void doRename(final Doc doc) {
@@ -1247,13 +1248,13 @@ public class MainActivity extends Activity {
         et.setBackgroundDrawable(new PixelPanel(0x88101E24, C_BORDER, dpf(10), dpf(1.4f), 0));
         et.setPadding(dp(12), dp(10), dp(12), dp(10));
 
-        final Sheet s = new Sheet("重命名", "加后缀可以临时停用，例如 mymod_off");
+        final Sheet s = new Sheet(getString(R.string.row_rename), getString(R.string.sheet_rename_hint));
         s.view(et);
-        s.primary("保存", new Runnable() {
+        s.primary(getString(R.string.btn_save), new Runnable() {
             public void run() {
                 final String nn = et.getText().toString().trim();
                 if (nn.length() == 0 || nn.contains("/")) {
-                    toast("名字不合法");
+                    toast(getString(R.string.toast_invalid_name));
                     return;
                 }
                 s.dismiss();
@@ -1270,7 +1271,7 @@ public class MainActivity extends Activity {
                         } catch (final Exception e) {
                             post(new Runnable() {
                                 public void run() {
-                                    toast("重命名失败：" + shortMsg(e));
+                                    toast(getString(R.string.toast_rename_failed) + shortMsg(e));
                                 }
                             });
                         }
@@ -1290,8 +1291,8 @@ public class MainActivity extends Activity {
     }
 
     private void confirmDelete(final Doc doc) {
-        final Sheet s = new Sheet("删除 " + doc.name + " ?", "会连同里面所有文件一起删掉，无法撤销。");
-        s.primary("删除", new Runnable() {
+        final Sheet s = new Sheet(getString(R.string.sheet_delete_prefix) + doc.name + " ?", getString(R.string.sheet_delete_body));
+        s.primary(getString(R.string.row_delete), new Runnable() {
             public void run() {
                 s.dismiss();
                 new Thread(new Runnable() {
@@ -1306,7 +1307,7 @@ public class MainActivity extends Activity {
                         } catch (final Exception e) {
                             post(new Runnable() {
                                 public void run() {
-                                    toast("删除失败：" + shortMsg(e));
+                                    toast(getString(R.string.toast_delete_failed) + shortMsg(e));
                                 }
                             });
                         }
@@ -1314,23 +1315,23 @@ public class MainActivity extends Activity {
                 }).start();
             }
         }, C_RED);
-        s.secondary("取消");
+        s.secondary(getString(R.string.btn_cancel));
         s.show();
     }
 
     private void showDetail(Row r) {
         StringBuilder sb = new StringBuilder();
-        sb.append("类型　").append(r.doc.isDir ? "文件夹" : "文件").append('\n');
-        if (!r.doc.isDir) sb.append("大小　").append(human(r.doc.size)).append('\n');
-        sb.append("子项　").append(r.childCount).append('\n');
-        sb.append("状态　").append(stateText(r)).append('\n');
+        sb.append(getString(R.string.detail_type)).append(r.doc.isDir ? getString(R.string.detail_folder) : getString(R.string.badge_file)).append('\n');
+        if (!r.doc.isDir) sb.append(getString(R.string.detail_size)).append(human(r.doc.size)).append('\n');
+        sb.append(getString(R.string.detail_children)).append(r.childCount).append('\n');
+        sb.append(getString(R.string.detail_status)).append(stateText(r)).append('\n');
         if (r.state == ST_NESTED) {
-            sb.append("\n建议：删掉它，再用「安装 ZIP」重装一次。\n安装器会自动剥掉多余的那层。");
+            sb.append(getString(R.string.detail_nested_tip));
         }
-        sb.append("\n内部 ID\n").append(r.doc.docId);
+        sb.append(getString(R.string.detail_internal_id)).append(r.doc.docId);
         Sheet s = new Sheet(r.doc.name, null);
         s.text(sb.toString());
-        s.secondary("好");
+        s.secondary(getString(R.string.btn_ok));
         s.show();
     }
 
@@ -1338,7 +1339,7 @@ public class MainActivity extends Activity {
 
     private void pickZip() {
         if (modsDocId == null) {
-            toast("请先选择目录");
+            toast(getString(R.string.toast_select_dir_first));
             return;
         }
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -1348,13 +1349,13 @@ public class MainActivity extends Activity {
         try {
             startActivityForResult(i, REQ_ZIP);
         } catch (Exception e) {
-            toast("系统里找不到文件选择器");
+            toast(getString(R.string.err_no_file_picker));
         }
     }
 
     private void installZip(final Uri zipUri) {
         busy = true;
-        setHead("解析压缩包", C_GOLD);
+        setHead(getString(R.string.head_parsing), C_GOLD);
         bar.setIndeterminate();
         new Thread(new Runnable() {
             public void run() {
@@ -1365,7 +1366,7 @@ public class MainActivity extends Activity {
                         post(new Runnable() {
                             public void run() {
                                 bar.setIdle();
-                                setHead("压缩包为空", C_RED);
+                                setHead(getString(R.string.head_archive_empty), C_RED);
                             }
                         });
                         return;
@@ -1382,7 +1383,7 @@ public class MainActivity extends Activity {
                     post(new Runnable() {
                         public void run() {
                             bar.setIdle();
-                            setHead("读取失败", C_RED);
+                            setHead(getString(R.string.head_read_failed), C_RED);
                             toast(shortMsg(e));
                         }
                     });
@@ -1500,14 +1501,14 @@ public class MainActivity extends Activity {
 
     private void confirmInstall(final Uri zipUri, final List<Install> plan, final int total) {
         StringBuilder sb = new StringBuilder();
-        sb.append(total).append(" 个文件\n");
+        sb.append(total).append(getString(R.string.files_suffix_nl));
         for (Install i : plan) {
             sb.append("→ Mods/").append(i.target).append("/   ")
-                    .append(i.entries.size()).append(" 个文件\n");
+                    .append(i.entries.size()).append(getString(R.string.files_suffix_nl));
         }
-        sb.append("\n同名目录会被整个覆盖。");
+        sb.append(getString(R.string.zip_overwrite_note));
 
-        final Sheet s = new Sheet("确认安装", null);
+        final Sheet s = new Sheet(getString(R.string.sheet_confirm_install), null);
         s.text(sb.toString());
 
         // 落点预览条
@@ -1533,18 +1534,18 @@ public class MainActivity extends Activity {
         }
         s.view(chips);
 
-        s.primary("安装", new Runnable() {
+        s.primary(getString(R.string.btn_install), new Runnable() {
             public void run() {
                 s.dismiss();
                 doInstall(zipUri, plan, total);
             }
         });
-        s.secondary("取消");
+        s.secondary(getString(R.string.btn_cancel));
         s.show();
     }
 
     private void doInstall(final Uri zipUri, final List<Install> plan, final int total) {
-        setHead("安装中", C_GOLD);
+        setHead(getString(R.string.head_installing), C_GOLD);
         bar.setProgress(0f);
         new Thread(new Runnable() {
             public void run() {
@@ -1600,11 +1601,11 @@ public class MainActivity extends Activity {
                             busy = false;
                             bar.setIdle();
                             if (fe == 0) {
-                                setHead("安装完成", C_GREEN);
-                                toast("写入 " + fd + " 个文件，重启游戏生效");
+                                setHead(getString(R.string.head_install_done), C_GREEN);
+                                toast(getString(R.string.toast_wrote_prefix) + fd + getString(R.string.toast_wrote_suffix));
                             } else {
-                                setHead("部分失败", C_ORANGE);
-                                toast("成功 " + fd + "，失败 " + fe + "：" + le);
+                                setHead(getString(R.string.head_partial_fail), C_ORANGE);
+                                toast(getString(R.string.toast_ok_prefix) + fd + getString(R.string.toast_fail_mid) + fe + getString(R.string.colon) + le);
                             }
                             refresh();
                         }
@@ -1614,7 +1615,7 @@ public class MainActivity extends Activity {
                         public void run() {
                             busy = false;
                             bar.setIdle();
-                            setHead("安装中断", C_RED);
+                            setHead(getString(R.string.head_install_aborted), C_RED);
                             toast(shortMsg(e));
                             refresh();
                         }
@@ -1647,7 +1648,7 @@ public class MainActivity extends Activity {
         Uri pu = DocumentsContract.buildDocumentUriUsingTree(treeUri, cur);
         Uri file = DocumentsContract.createDocument(getContentResolver(), pu,
                 mimeOf(fname), fname);
-        if (file == null) throw new IOException("无法写入 " + fname);
+        if (file == null) throw new IOException(getString(R.string.err_write_prefix) + fname);
         // 个别文件系统会按 MIME 补后缀（main.lua → main.lua.txt），改回来
         String actual = nameOfUri(file);
         if (actual != null && !fname.equals(actual)) {
@@ -1684,10 +1685,10 @@ public class MainActivity extends Activity {
 
     private void showLog() {
         if (modsDocId == null) {
-            toast("请先选择目录");
+            toast(getString(R.string.toast_select_dir_first));
             return;
         }
-        setHead("读日志", C_GOLD);
+        setHead(getString(R.string.head_reading_log), C_GOLD);
         new Thread(new Runnable() {
             public void run() {
                 try {
@@ -1695,9 +1696,9 @@ public class MainActivity extends Activity {
                     if (lovelyId == null) {
                         post(new Runnable() {
                             public void run() {
-                                setHead("无日志", C_ORANGE);
-                                Sheet s = new Sheet("还没有日志", "游戏至少启动一次后才会生成 lovely/ 目录。");
-                                s.secondary("好");
+                                setHead(getString(R.string.head_no_log), C_ORANGE);
+                                Sheet s = new Sheet(getString(R.string.sheet_no_log_title), getString(R.string.sheet_no_log_body));
+                                s.secondary(getString(R.string.btn_ok));
                                 s.show();
                             }
                         });
@@ -1707,7 +1708,7 @@ public class MainActivity extends Activity {
                     if (logDir == null) {
                         post(new Runnable() {
                             public void run() {
-                                setHead("无日志", C_ORANGE);
+                                setHead(getString(R.string.head_no_log), C_ORANGE);
                             }
                         });
                         return;
@@ -1718,7 +1719,7 @@ public class MainActivity extends Activity {
                         if (!d.isDir && (latest == null || d.mtime > latest.mtime)) latest = d;
                     }
                     if (latest == null) {
-                        setHead("日志为空", C_ORANGE);
+                        setHead(getString(R.string.head_log_empty), C_ORANGE);
                         return;
                     }
                     final String text = readText(latest.docId, 400000);
@@ -1733,15 +1734,15 @@ public class MainActivity extends Activity {
                     final int fw = warns;
                     post(new Runnable() {
                         public void run() {
-                            setHead("日志已读", C_GREEN);
-                            if (pruned > 0) toast("已清理 " + pruned + " 个过期日志");
+                            setHead(getString(R.string.head_log_read), C_GREEN);
+                            if (pruned > 0) toast(getString(R.string.toast_cleaned_prefix) + pruned + getString(R.string.toast_cleaned_suffix));
                             showLogSheet(title, text, fa, fw);
                         }
                     });
                 } catch (final Exception e) {
                     post(new Runnable() {
                         public void run() {
-                            setHead("读日志失败", C_RED);
+                            setHead(getString(R.string.head_read_log_failed), C_RED);
                             toast(shortMsg(e));
                         }
                     });
@@ -1755,8 +1756,8 @@ public class MainActivity extends Activity {
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setPadding(0, 0, 0, dp(10));
 
-        TextView a = label(applied + " 处补丁", 10f, C_GREEN, Typeface.BOLD);
-        TextView w = label(warns + " 条警告", 10f, C_ORANGE, Typeface.BOLD);
+        TextView a = label(applied + getString(R.string.log_patches_suffix), 10f, C_GREEN, Typeface.BOLD);
+        TextView w = label(warns + getString(R.string.log_warns_suffix), 10f, C_ORANGE, Typeface.BOLD);
         w.setPadding(dp(12), 0, 0, 0);
         top.addView(a);
         top.addView(w);
@@ -1789,9 +1790,9 @@ public class MainActivity extends Activity {
         wrap.addView(logWrap, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        Sheet s = new Sheet(title, "保留最近 1 小时，更早的会自动删掉");
+        Sheet s = new Sheet(title, getString(R.string.sheet_log_keep));
         s.view(wrap);
-        s.secondary("关闭");
+        s.secondary(getString(R.string.btn_close));
         s.height(0.78f);
         s.show();
     }
@@ -1836,7 +1837,7 @@ public class MainActivity extends Activity {
         ttl.setLayoutParams(new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView t1 = display("THUNDERSTORE", 17f, C_INK);
-        TextView t2 = label("热门模组", 9.5f, C_MUTED, Typeface.NORMAL);
+        TextView t2 = label(getString(R.string.browse_hot_mods), 9.5f, C_MUTED, Typeface.NORMAL);
         t2.setPadding(0, dp(2), 0, 0);
         ttl.addView(t1);
         ttl.addView(t2);
@@ -1857,7 +1858,7 @@ public class MainActivity extends Activity {
 
         browseSearch = new EditText(this);
         browseSearch.setSingleLine(true);
-        browseSearch.setHint("搜索模组名 / 作者");
+        browseSearch.setHint(getString(R.string.search_hint));
         browseSearch.setHintTextColor(C_DIM);
         browseSearch.setTextColor(C_INK);
         browseSearch.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
@@ -1908,7 +1909,7 @@ public class MainActivity extends Activity {
         tabs.addView(tabGh, t2lp);
         col.addView(tabs);
 
-        browseInfo = label("正在读取目录…", 9.5f, C_MUTED, Typeface.NORMAL);
+        browseInfo = label(getString(R.string.browse_loading), 9.5f, C_MUTED, Typeface.NORMAL);
         browseInfo.setPadding(dp(16), dp(10), dp(16), dp(6));
         col.addView(browseInfo);
 
@@ -2023,10 +2024,10 @@ public class MainActivity extends Activity {
 
         if (pkgs.isEmpty()) {
             if (pkgsLoading) {
-                browseInfo.setText("正在拉取 Thunderstore 目录…");
+                browseInfo.setText(getString(R.string.browse_fetching_ts));
                 browseBar.setIndeterminate();
             } else {
-                browseInfo.setText("没能读到目录，检查一下网络");
+                browseInfo.setText(getString(R.string.browse_load_failed));
                 browseBar.setIdle();
                 TextView retry = pxSmall("RETRY", new View.OnClickListener() {
                     public void onClick(View v) {
@@ -2059,13 +2060,13 @@ public class MainActivity extends Activity {
         }
 
         if (q.length() == 0) {
-            browseInfo.setText(pkgs.size() + " 个模组 · 按下载量排序");
+            browseInfo.setText(pkgs.size() + getString(R.string.browse_mods_sorted));
         } else {
-            browseInfo.setText("找到 " + hit.size() + " 个结果");
+            browseInfo.setText(getString(R.string.browse_found_prefix) + hit.size() + getString(R.string.browse_found_suffix));
         }
 
         if (hit.isEmpty()) {
-            TextView e = label("没有匹配的模组", 13f, C_MUTED, Typeface.NORMAL);
+            TextView e = label(getString(R.string.browse_no_match), 13f, C_MUTED, Typeface.NORMAL);
             e.setGravity(Gravity.CENTER);
             e.setPadding(0, dp(50), 0, 0);
             browseList.addView(e);
@@ -2098,14 +2099,14 @@ public class MainActivity extends Activity {
         browseList.removeAllViews();
 
         if (ghLoading && ghRepos.isEmpty()) {
-            browseInfo.setText("正在搜索 GitHub…");
+            browseInfo.setText(getString(R.string.browse_searching_gh));
             browseBar.setIndeterminate();
             return;
         }
         browseBar.setIdle();
 
         if (ghRepos.isEmpty()) {
-            browseInfo.setText(ghErr != null ? ("搜索失败：" + ghErr) : "没有匹配的仓库");
+            browseInfo.setText(ghErr != null ? (getString(R.string.browse_search_failed) + ghErr) : getString(R.string.browse_no_repos));
             TextView retry = pxSmall("RETRY", new View.OnClickListener() {
                 public void onClick(View v) {
                     searchGitHub(browseQuery, new Runnable() {
@@ -2119,7 +2120,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        browseInfo.setText(ghRepos.size() + " 个仓库 · 按星数排序");
+        browseInfo.setText(ghRepos.size() + getString(R.string.browse_repos_sorted));
 
         int n = Math.min(ghRepos.size(), browseLimit);
         for (int i = 0; i < n; i++) {
@@ -2169,7 +2170,7 @@ public class MainActivity extends Activity {
 
         String metaText = p.source == 1
                 ? (p.owner + " · ★" + humanNum(p.stars) + (p.lang.length() > 0 ? " · " + p.lang : ""))
-                : (p.owner + " · " + humanNum(p.downloads) + " 下载 · " + human(p.size));
+                : (p.owner + " · " + humanNum(p.downloads) + getString(R.string.browse_downloads_sep) + human(p.size));
         TextView meta = label(metaText, 9.5f, C_MUTED, Typeface.NORMAL);
         meta.setSingleLine(true);
         mid.addView(meta);
@@ -2213,7 +2214,7 @@ public class MainActivity extends Activity {
 
     private void showPkgDetail(final Pkg p) {
         Sheet s = new Sheet(p.name,
-                p.source == 1 ? (p.owner + " · " + p.version + " 分支") : (p.owner + " · v" + p.version));
+                p.source == 1 ? (p.owner + " · " + p.version + getString(R.string.browse_branch_suffix)) : (p.owner + " · v" + p.version));
 
         // 缺哪些依赖先算出来，正文和按钮都要用
         final List<Pkg> need = p.source == 0 ? resolveDeps(p) : new ArrayList<Pkg>();
@@ -2223,37 +2224,37 @@ public class MainActivity extends Activity {
 
         if (p.source == 1) {
             b.append("\n\n★ ").append(humanNum(p.stars))
-                    .append("  ·  ").append(p.lang.length() > 0 ? p.lang : "未知语言")
-                    .append("  ·  仓库 ").append(human(p.size));
-            b.append("\n\n这个「仓库」是 git 全量，含所有历史提交、所有分支和 .git 目录。")
-                    .append("实际下载的是默认分支的最新快照 zip，通常比它小得多——")
-                    .append("所以几百 MB 的仓库也可能几秒就下完。");
-            b.append("\n\nGitHub 仓库不一定都能直接装：会下载默认分支的 zip，")
-                    .append("剥掉最外层目录后放进 Mods/。里面没有 .lua 的会被拒绝。");
+                    .append("  ·  ").append(p.lang.length() > 0 ? p.lang : getString(R.string.browse_unknown_lang))
+                    .append(getString(R.string.browse_repo_size)).append(human(p.size));
+            b.append(getString(R.string.browse_repo_note1))
+                    .append(getString(R.string.browse_repo_note2))
+                    .append(getString(R.string.browse_repo_note3));
+            b.append(getString(R.string.browse_gh_note1))
+                    .append(getString(R.string.browse_gh_note2));
         } else {
-            b.append("\n\n下载量 ").append(humanNum(p.downloads))
-                    .append("  ·  体积 ").append(human(p.size));
+            b.append(getString(R.string.browse_downloads_label)).append(humanNum(p.downloads))
+                    .append(getString(R.string.browse_size_sep)).append(human(p.size));
             if (p.deps.length() > 0) {
-                b.append("\n\n依赖：").append(p.deps)
+                b.append(getString(R.string.browse_deps_label)).append(p.deps)
                         .append(need.isEmpty()
-                                ? "\n（都已经在 Mods 里了）"
-                                : "\n（点安装会问你要不要一起装）");
+                                ? getString(R.string.browse_deps_in_mods)
+                                : getString(R.string.browse_deps_ask));
             }
         }
-        b.append("\n\n会装到 Mods/").append(installDirFor(p)).append("/");
+        b.append(getString(R.string.browse_install_to)).append(installDirFor(p)).append("/");
         s.text(b.toString());
 
-        // 英文描述自动翻一份中文，异步加载，翻译失败就整行隐藏
+        // 系统语言是中文时，把英文描述自动翻一份中文；英文系统直接显示原文
         if (p.desc.trim().length() > 0) {
-            final TextView zh = label("正在翻译…", 10.5f, 0xFFBFE6E6, Typeface.NORMAL);
+            final TextView zh = label(isZh() ? getString(R.string.translating) : p.desc, 10.5f, 0xFFBFE6E6, Typeface.NORMAL);
             zh.setLineSpacing(dp(3), 1f);
             zh.setPadding(dp(10), dp(8), dp(10), dp(8));
             zh.setBackgroundDrawable(new PixelPanel(0x3326E0E0, 0x55B9D6D9, dpf(8), dpf(1.2f), 0));
             s.view(zh);
-            translateAsync(p.desc, zh);
+            if (isZh()) translateAsync(p.desc, zh);
         }
 
-        s.primary(need.isEmpty() ? "下载并安装" : ("下载并安装（含 " + need.size() + " 个依赖）"),
+        s.primary(need.isEmpty() ? getString(R.string.btn_download_install) : (getString(R.string.btn_download_install_deps_pre) + need.size() + getString(R.string.btn_download_install_deps_suf)),
                 new Runnable() {
                     public void run() {
                         s.dismiss();
@@ -2266,7 +2267,7 @@ public class MainActivity extends Activity {
                         }
                     }
                 });
-        s.secondary("取消");
+        s.secondary(getString(R.string.btn_cancel));
         s.show();
     }
 
@@ -2343,18 +2344,18 @@ public class MainActivity extends Activity {
 
     /** 装之前先把依赖列清楚，让用户自己决定要不要一起装 */
     private void confirmDeps(final Pkg p, final List<Pkg> need) {
-        final Sheet c = new Sheet("这个 mod 还缺 " + need.size() + " 个依赖", p.name);
+        final Sheet c = new Sheet(getString(R.string.sheet_missing_deps_pre) + need.size() + getString(R.string.sheet_missing_deps_suf), p.name);
         StringBuilder b = new StringBuilder();
         for (int i = 0; i < need.size(); i++) {
             Pkg d = need.get(i);
             b.append("· ").append(d.name).append("   ").append(human(d.size));
-            if ("smods".equals(targetDirOf(d))) b.append("   ← Steamodded 本体");
+            if ("smods".equals(targetDirOf(d))) b.append(getString(R.string.deps_smods_marker));
             b.append("\n");
         }
-        b.append("\n会先装依赖，最后装本体。之后想卸载，它们会各自出现在列表里。");
+        b.append(getString(R.string.deps_order_note));
         c.text(b.toString());
 
-        c.primary("一起装", new Runnable() {
+        c.primary(getString(R.string.btn_install_all), new Runnable() {
             public void run() {
                 c.dismiss();
                 List<Pkg> all = new ArrayList<Pkg>(need);
@@ -2362,7 +2363,7 @@ public class MainActivity extends Activity {
                 installQueue(all, p.name);
             }
         });
-        c.primary("只装本体", new Runnable() {
+        c.primary(getString(R.string.btn_install_main), new Runnable() {
             public void run() {
                 c.dismiss();
                 List<Pkg> one = new ArrayList<Pkg>();
@@ -2370,18 +2371,18 @@ public class MainActivity extends Activity {
                 installQueue(one, p.name);
             }
         }, C_CYAN);
-        c.secondary("取消");
+        c.secondary(getString(R.string.btn_cancel));
         c.show();
     }
 
     /** 串行装一串包。单个失败不中断，最后统一报结果。 */
     private void installQueue(final List<Pkg> list, final String lead) {
         if (modsDocId == null) {
-            toast("请先选择目录");
+            toast(getString(R.string.toast_select_dir_first));
             return;
         }
         if (busy) {
-            toast("还有操作在进行");
+            toast(getString(R.string.toast_op_busy));
             return;
         }
         if (list.isEmpty()) return;
@@ -2405,8 +2406,8 @@ public class MainActivity extends Activity {
                         public void run() {
                             if (browseInfo != null) {
                                 browseInfo.setText(total > 1
-                                        ? ("安装 " + n + "/" + total + "：" + p.name + "  准备下载…")
-                                        : ("准备下载 " + p.name + " …"));
+                                        ? (getString(R.string.progress_install_pre) + n + "/" + total + getString(R.string.colon) + p.name + getString(R.string.progress_preparing))
+                                        : (getString(R.string.progress_preparing_pre) + p.name + " …"));
                             }
                             // 这里只走到"装完的包数"，别提前跳到 n/total，
                             // 否则下载一开始进度条会往回退
@@ -2423,8 +2424,8 @@ public class MainActivity extends Activity {
                                 }
                                 if (browseInfo != null) {
                                     browseInfo.setText(total > 1
-                                            ? ("安装 " + n + "/" + total + "：" + p.name + "  解压中…")
-                                            : ("正在解压 " + p.name + " …"));
+                                            ? (getString(R.string.progress_install_pre) + n + "/" + total + getString(R.string.colon) + p.name + getString(R.string.progress_extracting))
+                                            : (getString(R.string.progress_extracting_pre) + p.name + " …"));
                                 }
                             }
                         });
@@ -2434,7 +2435,7 @@ public class MainActivity extends Activity {
                         done.add(dir);
                         ok++;
                     } catch (Exception e) {
-                        if (fail == null) fail = p.name + "：" + shortMsg(e);
+                        if (fail == null) fail = p.name + getString(R.string.colon) + shortMsg(e);
                     } finally {
                         try {
                             if (tmp.exists()) tmp.delete();
@@ -2470,15 +2471,15 @@ public class MainActivity extends Activity {
                         }
                         renderBrowseList();
                         if (err != null) {
-                            if (browseInfo != null) browseInfo.setText("部分失败：" + err);
-                            toast("装好 " + okN + " 个，" + err);
+                            if (browseInfo != null) browseInfo.setText(getString(R.string.browse_partial_failed) + err);
+                            toast(getString(R.string.toast_installed_pre) + okN + getString(R.string.toast_installed_sep) + err);
                         } else {
                             if (browseInfo != null) {
                                 browseInfo.setText(total > 1
-                                        ? ("已安装 " + lead + " 及 " + (total - 1) + " 个依赖")
-                                        : ("已安装 " + lead));
+                                        ? (getString(R.string.toast_installed2_pre) + lead + getString(R.string.toast_installed_and) + (total - 1) + getString(R.string.sheet_missing_deps_suf))
+                                        : (getString(R.string.toast_installed2_pre) + lead));
                             }
-                            toast("已安装 " + lead);
+                            toast(getString(R.string.toast_installed2_pre) + lead);
                         }
                         refresh();
                     }
@@ -2521,9 +2522,9 @@ public class MainActivity extends Activity {
                                     if (browseBar != null) browseBar.setProgress(f);
                                     if (browseInfo != null) {
                                         String pre = dlCount > 1
-                                                ? ("安装 " + (dlIdx + 1) + "/" + dlCount + "：" + dlName + "  ")
+                                                ? (getString(R.string.progress_install_pre) + (dlIdx + 1) + "/" + dlCount + getString(R.string.colon) + dlName + "  ")
                                                 : "";
-                                        browseInfo.setText(pre + "下载 " + (int) (local * 100) + "%");
+                                        browseInfo.setText(pre + getString(R.string.progress_downloading) + (int) (local * 100) + "%");
                                     }
                                 }
                             });
@@ -2536,9 +2537,9 @@ public class MainActivity extends Activity {
                                     if (browseBar != null) browseBar.setIndeterminate();
                                     if (browseInfo != null) {
                                         String pre = dlCount > 1
-                                                ? ("安装 " + (dlIdx + 1) + "/" + dlCount + "：" + dlName + "  ")
+                                                ? (getString(R.string.progress_install_pre) + (dlIdx + 1) + "/" + dlCount + getString(R.string.colon) + dlName + "  ")
                                                 : "";
-                                        browseInfo.setText(pre + "已下载 " + human(d));
+                                        browseInfo.setText(pre + getString(R.string.progress_downloaded) + human(d));
                                     }
                                 }
                             });
@@ -2635,7 +2636,7 @@ public class MainActivity extends Activity {
                 deleteDoc(dirId);
             } catch (Throwable ignore) {
             }
-            throw new IOException("仓库里没有 .lua，不是能直接装的 mod");
+            throw new IOException(getString(R.string.err_no_lua));
         }
         return count;
     }
@@ -2647,54 +2648,54 @@ public class MainActivity extends Activity {
     }
 
     private void showOverflow() {
-        Sheet s = new Sheet("操作", null);
-        s.row("选择目录", "重新授权存档目录", C_CYAN, new Runnable() {
+        Sheet s = new Sheet(getString(R.string.menu_actions), null);
+        s.row(getString(R.string.select_folder), getString(R.string.menu_reauth), C_CYAN, new Runnable() {
             public void run() {
                 pickTree();
             }
         });
-        s.row("Lovely 日志", "最近一次启动的补丁记录", C_PURPLE, new Runnable() {
+        s.row(getString(R.string.menu_lovely_log), getString(R.string.menu_lovely_log_sub), C_PURPLE, new Runnable() {
             public void run() {
                 showLog();
             }
         });
-        s.row("使用说明", "目录约定与已知限制", C_MUTED, new Runnable() {
+        s.row(getString(R.string.menu_howto), getString(R.string.menu_howto_sub), C_MUTED, new Runnable() {
             public void run() {
                 showHelp();
             }
         });
-        s.secondary("关闭");
+        s.secondary(getString(R.string.btn_close));
         s.show();
     }
 
     private void showHelp() {
-        String txt = "目录约定\n"
-                + "Documents/Balatro/game/save/Mods/<mod名>/\n"
-                + "mod 只能有一层，别再套文件夹。\n\n"
-                + "「套了一层」是什么意思\n"
-                + "很多解压工具会拿 zip 文件名多建一层目录，游戏就会完全不认。"
-                + "看到这个标记，直接删掉，再用「安装 ZIP」重装 —— 安装器会自动剥掉多余的层。\n\n"
-                + "不需要任何权限\n"
-                + "走系统存储访问框架，只对你在选择目录时点过的那个文件夹有读写权。\n\n"
-                + "在线装 mod\n"
-                + "底部「热门」可以直接浏览在线目录，两个来源可切换："
-                + "Thunderstore 按下载量排序，GitHub 按星数排；点进详情能看到英文描述的中文翻译，"
-                + "再点「下载并安装」就装好。已装过的会标成绿色 OK。\n\n"
-                + "GitHub 上的仓库不一定都能装：管理器会下载默认分支的 zip，"
-                + "剥掉最外层目录后放进 Mods，里面没有 .lua 文件的会被拒绝。"
-                + "列表里的语言标签可以当参考，Lua 的才大概率能用。\n\n"
-                + "已知限制\n"
-                + "内置 Lovely 为 0.9.0，部分 mod 的补丁按 0.10 语法写，日志里会出现 "
-                + "Unknown key 之类的警告；带 native 组件的 mod（如 Talisman）在手机上跑不起来。\n\n"
-                + "日志会自动清理\n"
-                + "游戏每启动一次就写一个 lovely-*.log，攒久了很占地方。"
-                + "管理器在「刷新」和看日志时会自动删掉超过 1 小时的，"
-                + "并且永远留下最新的一份，免得日志区变空。\n\n"
-                + "背景\n"
-                + "移植自游戏原版 background.fs 着色器（极坐标漩涡 + 三色混合）。"
-                + "原版主色是红黑白，这里用的是 Cryptid 改过之后的青绿配色 —— "
-                + "这个颜色是它换上去的，不是原版。";
-        Sheet s = new Sheet("使用说明", null);
+        String txt = getString(R.string.help_title)
+                + getString(R.string.help_path)
+                + getString(R.string.help_one_level)
+                + getString(R.string.help_nested_q)
+                + getString(R.string.help_nested_a)
+                + getString(R.string.help_nested_fix)
+                + getString(R.string.help_no_perm)
+                + getString(R.string.help_saf)
+                + getString(R.string.help_online)
+                + getString(R.string.help_online_a)
+                + getString(R.string.help_online_b)
+                + getString(R.string.help_online_c)
+                + getString(R.string.help_gh_a)
+                + getString(R.string.help_gh_b)
+                + getString(R.string.help_lang_hint)
+                + getString(R.string.help_limits)
+                + getString(R.string.help_lovely_ver)
+                + getString(R.string.help_native)
+                + getString(R.string.help_log_title)
+                + getString(R.string.help_log_a)
+                + getString(R.string.help_log_b)
+                + getString(R.string.help_log_c)
+                + getString(R.string.help_bg_title)
+                + getString(R.string.help_bg_a)
+                + getString(R.string.help_bg_b)
+                + getString(R.string.help_bg_c);
+        Sheet s = new Sheet(getString(R.string.menu_howto), null);
 
         // 说明较长：超过半屏就收成可滚动，别把「好」按钮顶出屏幕
         TextView bodyTv = label(txt, 11.5f, 0xFFC9D9DB, Typeface.NORMAL);
@@ -2720,7 +2721,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        TextView by = label("作者", 9.5f, C_DIM, Typeface.NORMAL);
+        TextView by = label(getString(R.string.detail_author), 9.5f, C_DIM, Typeface.NORMAL);
         by.setLetterSpacing(0.18f);
         by.setPadding(0, dp(16), 0, dp(3));
         s.view(by);
@@ -2729,14 +2730,14 @@ public class MainActivity extends Activity {
         who.setLetterSpacing(0.04f);
         s.view(who);
 
-        s.secondary("好");
+        s.secondary(getString(R.string.btn_ok));
         s.show();
     }
 
     // ================= 工具 =================
 
-    private static String human(long bytes) {
-        if (bytes < 0) return "未知";
+    private String human(long bytes) {
+        if (bytes < 0) return getString(R.string.human_unknown);
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) return (bytes / 1024) + " KB";
         return String.format("%.1f MB", bytes / 1048576.0);
@@ -3529,7 +3530,7 @@ public class MainActivity extends Activity {
                 ui.post(new Runnable() {
                     public void run() {
                         if (errMsg != null && pkgs.isEmpty()) {
-                            toast("拉取失败：" + errMsg);
+                            toast(getString(R.string.toast_fetch_failed) + errMsg);
                         }
                         onDone.run();
                     }
@@ -3606,6 +3607,11 @@ public class MainActivity extends Activity {
         ghRepos.addAll(out);
     }
 
+    /** 系统语言是不是中文。 */
+    private static boolean isZh() {
+        return Locale.getDefault().getLanguage().equals("zh");
+    }
+
     /** 把英文描述翻成中文。结果缓存在内存里，同一个包不重复请求。 */
     private void translateAsync(final String en, final TextView target) {
         if (en == null || en.trim().length() == 0) {
@@ -3680,18 +3686,18 @@ public class MainActivity extends Activity {
         boolean isDir;
     }
 
-    static class Row {
+    class Row {
         Doc doc;
         int state = ST_UNKNOWN;
         int childCount;
 
         String subtitle() {
             if (!doc.isDir) return human(doc.size);
-            String base = childCount + " 项";
-            if ("lovely".equalsIgnoreCase(doc.name)) return base + " · Lovely 的日志";
-            if ("smods".equalsIgnoreCase(doc.name)) return base + " · Steamodded 本体";
-            if (state == ST_NESTED) return base + " · 多套了一层";
-            if (state == ST_UNKNOWN) return base + " · 找不到入口文件";
+            String base = childCount + getString(R.string.detail_items_suffix);
+            if ("lovely".equalsIgnoreCase(doc.name)) return base + getString(R.string.state_suffix_lovely);
+            if ("smods".equalsIgnoreCase(doc.name)) return base + getString(R.string.state_suffix_smods);
+            if (state == ST_NESTED) return base + getString(R.string.state_suffix_nested);
+            if (state == ST_UNKNOWN) return base + getString(R.string.state_suffix_no_entry);
             return base;
         }
     }
