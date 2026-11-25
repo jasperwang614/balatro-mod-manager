@@ -25,14 +25,21 @@
   <img src="docs/log.png" width="46%" alt="日志查看">
 </p>
 
+## 先决条件
+
+本仓库只做管理器，不含游戏本体，也不会帮你改游戏 APK。手机上须先装好一个能跑 mod 的 Balatro：
+
+1. 用开源项目 [balatro-mobile-maker](https://github.com/blake502/balatro-mobile-maker)，拿你自己 Steam 版的 `Balatro.exe`（或 `Game.love`）在电脑上构建出 `balatro.apk`，装到手机。
+2. 再装 [Steamodded](https://github.com/Steamodded/smods)，否则游戏大概率闪退或渲染异常。
+
+装好之后，存档与 Mods 都在 `Documents/Balatro/game/save/`，管理器就是管这里的。
+
 ## 安装
 
 1. 下载 [`dist/BalatroMods.apk`](dist/BalatroMods.apk)，装到手机。
    （这是用仓库里的测试签名 `mm.keystore` 签的。如果你自己重新构建，签名不同，需要先卸载再装。）
 2. 首次打开从右上角 `⋮` 里选一次存档目录：`Documents/Balatro/game/save/Mods`（走系统 SAF 授权，只对这一处有读写权）。
 3. 授权一次后长期有效。
-
-需要手机侧已经装好 Balatro（本仓库只做管理器，不含游戏本体）。
 
 ## 构建
 
