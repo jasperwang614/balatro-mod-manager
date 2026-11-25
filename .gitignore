@@ -1,8 +1,12 @@
 # 构建产物
 out/
+out_stale_*/
 t/
 build.log
 *.idsig
+
+# 实机诊断留下的截图与抓包
+.diag/
 
 # 签名密钥（绝不外传）
 *.keystore

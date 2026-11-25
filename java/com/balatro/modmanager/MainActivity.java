@@ -123,6 +123,9 @@ public class MainActivity extends Activity {
     private Bar bar;
     private volatile boolean busy = false;
 
+    /** 解压到刚建好的空目录时置真，writeFile 可以跳过逐文件的同名查重 */
+    private volatile boolean writingFreshDir = false;
+
     // ---- Thunderstore 在线目录 ----
     private static final String TS_API = "https://thunderstore.io/c/balatro/api/v1/package/";
     private static final String TS_CACHE = "ts_pkgs.json";
@@ -1558,9 +1561,9 @@ public class MainActivity extends Activity {
                         String exist = findChildId(modsDocId, inst.target);
                         if (exist != null) deleteDoc(exist);
                         String rootDir = mkdir(modsDocId, inst.target);
+                        writingFreshDir = true;
 
-                        Map<String, String> relOf = new HashMap<String, String>();
-                        for (int i = 0; i < inst.entries.size(); i++) {
+                        Map<String, String> relOf = new HashMap<String, String>();                        for (int i = 0; i < inst.entries.size(); i++) {
                             relOf.put(inst.entries.get(i), inst.rels.get(i));
                         }
 
@@ -1590,6 +1593,7 @@ public class MainActivity extends Activity {
                                 }
                             }
                         } finally {
+                            writingFreshDir = false;
                             zis.close();
                         }
                     }
@@ -1643,8 +1647,13 @@ public class MainActivity extends Activity {
         }
         String fname = segs[segs.length - 1];
         if (fname.length() == 0) return;
-        String exist = findChildId(cur, fname);
-        if (exist != null) deleteDoc(exist);
+        // 整包装进刚删空重建的目录时，父目录里不可能有同名文件，
+        // 这次 findChildId 会把父目录全列一遍。像 All_in_Jest 的
+        // Items/Jokers 有 1111 个文件，逐个查就是 O(n²)，几分钟都装不完。
+        if (!writingFreshDir) {
+            String exist = findChildId(cur, fname);
+            if (exist != null) deleteDoc(exist);
+        }
         Uri pu = DocumentsContract.buildDocumentUriUsingTree(treeUri, cur);
         Uri file = DocumentsContract.createDocument(getContentResolver(), pu,
                 mimeOf(fname), fname);
@@ -2014,6 +2023,22 @@ public class MainActivity extends Activity {
         super.onBackPressed();
     }
 
+    /**
+     * 搜索用的宽松形式：去掉空格 / 下划线 / 连字符 / 点，统一小写。
+     * Thunderstore 的包名写法很随意（All_in_Jest、all-in-jest、AllInJest 都有），
+     * 不做归一化的话，用户按直觉连着敲一个词就搜不到东西。
+     */
+    private static String loose(String s) {
+        if (s == null) return "";
+        StringBuilder b = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == ' ' || c == '_' || c == '-' || c == '.' || c == '\t') continue;
+            b.append(Character.toLowerCase(c));
+        }
+        return b.toString();
+    }
+
     private void renderBrowseList() {
         if (browseList == null) return;
         if (browseTab == 1) {
@@ -2049,11 +2074,11 @@ public class MainActivity extends Activity {
         }
         browseBar.setIdle();
 
-        String q = browseQuery == null ? "" : browseQuery.trim().toLowerCase();
+        String q = loose(browseQuery);
         List<Pkg> hit = new ArrayList<Pkg>();
         for (Pkg p : pkgs) {
             if (q.length() > 0) {
-                String hay = (p.owner + " " + p.name + " " + p.desc).toLowerCase();
+                String hay = loose(p.owner + " " + p.name + " " + p.desc);
                 if (!hay.contains(q)) continue;
             }
             hit.add(p);
@@ -2302,6 +2327,26 @@ public class MainActivity extends Activity {
             if (r.doc == null || !r.doc.isDir) continue;
             if (r.doc.name.equalsIgnoreCase(want)) return r.doc.name;
             if (hitShort == null && r.doc.name.equalsIgnoreCase(p.name)) hitShort = r.doc.name;
+        }
+        // 早期版本把 Steamodded 装进了 "Steamodded-smods"，但游戏加载器只认
+        // Mods/smods，别的名字一律不加载——用户会以为装好了、进游戏却啥都没有。
+        // 刷到这种目录就地改名修正，顺带把它当成已装，免得又装一份重复加载。
+        if ("smods".equalsIgnoreCase(want) && treeUri != null) {
+            for (int i = 0; i < lastRows.size(); i++) {
+                Row r = lastRows.get(i);
+                if (r.doc == null || !r.doc.isDir || r.doc.name == null) continue;
+                String n = r.doc.name;
+                if (n.length() > 6 && n.toLowerCase().endsWith("-smods")) {
+                    try {
+                        Uri du = DocumentsContract.buildDocumentUriUsingTree(treeUri, r.doc.docId);
+                        Uri renamed = DocumentsContract.renameDocument(
+                                getContentResolver(), du, "smods");
+                        if (renamed != null) return "smods";
+                    } catch (Throwable ignore) {
+                    }
+                    return n;
+                }
+            }
         }
         return hitShort;
     }
@@ -2561,6 +2606,20 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** 解压过程中把已写入的文件数报出去，否则大包看起来像卡死了 */
+    private void reportExtract(final int n) {
+        final String name = dlName;
+        if (name == null || name.length() == 0) return;
+        ui.post(new Runnable() {
+            public void run() {
+                if (browseInfo != null) {
+                    browseInfo.setText(getString(R.string.extract_a) + name
+                            + getString(R.string.extract_b) + n + getString(R.string.extract_c));
+                }
+            }
+        });
+    }
+
     /**
      * 解到 Mods/{owner}-{name}/。Thunderstore 的包是平铺结构
      * （manifest.json + xxx.lua 全在根目录，没有 main.lua），
@@ -2573,6 +2632,7 @@ public class MainActivity extends Activity {
         dirCache.clear();
 
         int count = 0;
+        writingFreshDir = true;
         ZipInputStream zis = new ZipInputStream(new FileInputStream(zip));
         try {
             ZipEntry e;
@@ -2586,8 +2646,10 @@ public class MainActivity extends Activity {
                         || name.equals("README.md") || name.equals("CHANGELOG.md")) continue;
                 writeFile(dirId, name, zis);
                 count++;
+                if (count % 40 == 0) reportExtract(count);
             }
         } finally {
+            writingFreshDir = false;
             try {
                 zis.close();
             } catch (Throwable ignore) {
@@ -2609,6 +2671,7 @@ public class MainActivity extends Activity {
 
         int count = 0;
         int lua = 0;
+        writingFreshDir = true;
         ZipInputStream zis = new ZipInputStream(new FileInputStream(zip));
         try {
             ZipEntry e;
@@ -2623,8 +2686,10 @@ public class MainActivity extends Activity {
                 if (name.toLowerCase().endsWith(".lua")) lua++;
                 writeFile(dirId, name, zis);
                 count++;
+                if (count % 40 == 0) reportExtract(count);
             }
         } finally {
+            writingFreshDir = false;
             try {
                 zis.close();
             } catch (Throwable ignore) {

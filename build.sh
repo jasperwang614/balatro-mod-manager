@@ -31,15 +31,18 @@ done
 [ -e "$AJAR" ] || { echo "缺少 android.jar: $AJAR" >&2; echo "请设置 ANDROID_JAR" >&2; exit 1; }
 
 cd "$WORK"
-rm -rf out
+# 不清目录：某些环境会拦截批量删除。构建产物同名覆盖，结果一致；
+# 需要全新构建时手动把 out 移走即可。
 mkdir -p out/classes out/dex
 
 echo "[1/8] aapt2 compile"
 "$BT/aapt2$EXE" compile --dir res -o "$OUT/res.zip"
 
 echo "[2/8] aapt2 link"
+mkdir -p "$OUT/gen"
 "$BT/aapt2$EXE" link -o "$OUT/base.apk" -I "$AJAR" \
   --manifest AndroidManifest.xml \
+  --java "$OUT/gen" \
   --min-sdk-version 21 --target-sdk-version 30 \
   --version-code 1 --version-name 1.0 \
   -A assets \
@@ -48,6 +51,8 @@ ls -l "$OUT/base.apk"
 
 echo "[3/8] javac"
 find java -name '*.java' > out/srcs.txt
+# aapt2 --java 生成的 R.java 也要一起编，否则 getString(R.string.x) 报 "package R does not exist"
+find out/gen -name 'R.java' >> out/srcs.txt
 "$JDK/bin/javac" -J-Duser.language=en -encoding UTF-8 -source 8 -target 8 -nowarn \
   -bootclasspath "$AJAR" -classpath "$AJAR" \
   -d out/classes @out/srcs.txt

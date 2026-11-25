@@ -188,4 +188,7 @@
     <string name="state_suffix_smods">" · Steamodded"</string>
     <string name="state_suffix_nested">" · nested an extra level"</string>
     <string name="state_suffix_no_entry">" · no entry file found"</string>
+    <string name="extract_a">"Unpacking "</string>
+    <string name="extract_b">" … "</string>
+    <string name="extract_c">" files written"</string>
 </resources>

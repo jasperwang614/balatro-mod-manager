@@ -188,4 +188,7 @@
     <string name="state_suffix_smods">" · Steamodded 本体"</string>
     <string name="state_suffix_nested">" · 多套了一层"</string>
     <string name="state_suffix_no_entry">" · 找不到入口文件"</string>
+    <string name="extract_a">"正在解压 "</string>
+    <string name="extract_b">" … 已写入 "</string>
+    <string name="extract_c">" 个文件"</string>
 </resources>
